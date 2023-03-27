@@ -19,7 +19,7 @@ from mindspore.communication.management import init, get_rank, get_group_size
 from mindspore.ops import functional as F
 from mindspore.profiler.profiling import Profiler
 
-from src.logging import get_logger
+from src.general import increment_path, colorstr, labels_to_class_weights, check_file, check_img_size, LOGGER
 from config.args import get_args_train
 from src.network.loss import ComputeLoss
 from src.network.yolo import Model
@@ -27,10 +27,7 @@ from src.network.common import EMA
 from src.dataset import create_dataloader
 from src.boost import build_train_network
 from src.optimizer import get_group_param, get_lr, YoloMomentum
-from src.general import increment_path, colorstr, labels_to_class_weights, check_file, check_img_size
 from test import test
-
-LOGGER = get_logger()
 
 
 def set_seed(seed=2):
@@ -44,8 +41,8 @@ def detect_overflow(epoch, cur_step, grads):
     for i in range(len(grads)):
         tmp = grads[i].asnumpy()
         if np.isinf(tmp).any() or np.isnan(tmp).any():
-            print(f"grad_{i}", flush=True)
-            print(f"Epoch: {epoch}, Step: {cur_step} grad_{i} overflow, this step drop. ", flush=True)
+            LOGGER.info(f"grad_{i}")
+            LOGGER.info(f"Epoch: {epoch}, Step: {cur_step} grad_{i} overflow, this step drop. ")
             return True
     return False
 
@@ -62,18 +59,18 @@ def load_checkpoint_to_yolo(model, ckpt_path, resume):
         k = k[len(ema_prefix):] if ema_prefix in k else k
         if k in trainable_params:
             if v.shape != trainable_params[k].shape:
-                print(f"[WARNING] Filter checkpoint parameter: {k}", flush=True)
+                LOGGER.warning(f"Filter checkpoint parameter: {k}")
                 continue
             new_params[k] = v
         else:
-            print(f"[WARNING] Checkpoint parameter: {k} not in model", flush=True)
+            LOGGER.warning(f"Checkpoint parameter: {k} not in model")
 
     ms.load_param_into_net(model, new_params)
-    print(f"load ckpt from \"{ckpt_path}\" success.", flush=True)
+    LOGGER.info(f"load ckpt from \"{ckpt_path}\" success.")
     resume_epoch = 0
     if resume and 'epoch' in param_dict:
         resume_epoch = int(param_dict['epoch'])
-        print(f"[INFO] Resume training from epoch {resume_epoch}", flush=True)
+        LOGGER.info(f"Resume training from epoch {resume_epoch}")
     return resume_epoch
 
 
@@ -102,7 +99,7 @@ def create_train_network(model, compute_loss, ema, optimizer, loss_scaler=None,
             loss = F.depend(loss, ops.assign(self.lcls_loss, loss_items[2]))
             return loss
 
-    print(f"[INFO] rank_size: {rank_size}", flush=True)
+    LOGGER.info(f"rank_size: {rank_size}")
     net_with_loss = NetworkWithLoss(model, compute_loss, rank_size)
     train_step = build_train_network(network=net_with_loss, ema=ema, optimizer=optimizer,
                                      level='O0', boost_level='O1', amp_loss_scaler=loss_scaler,
@@ -111,10 +108,10 @@ def create_train_network(model, compute_loss, ema, optimizer, loss_scaler=None,
 
 
 def val(opt, model, ema, infer_model, val_dataloader, val_dataset, cur_epoch):
-    print("[INFO] Evaluating...", flush=True)
+    LOGGER.info("Evaluating...")
     param_dict = {}
     if opt.ema:
-        print("[INFO] ema parameter update", flush=True)
+        LOGGER.info("ema parameter update")
         for p in ema.ema_weights:
             name = p.name[len("ema."):]
             param_dict[name] = p.data
@@ -219,14 +216,14 @@ def train(hyp, opt):
     if pretrained:
         resume_epoch = load_checkpoint_to_yolo(model, weights, opt.resume)
         ema.clone_from_model()
-        print("ema_weight not exist, default pretrain weight is currently used.")
+        LOGGER.info("ema_weight not exist, default pretrain weight is currently used.")
 
     # Freeze
     freeze = [f'model.{x}.' for x in
               (freeze if len(freeze) > 1 else range(freeze[0]))]  # parameter names to freeze (full or partial)
     for n, p in model.parameters_and_names():
         if any(x in n for x in freeze):
-            print('freezing %s' % n)
+            LOGGER.info('freezing %s' % n)
             p.requires_grad = False
 
     # Image sizes
@@ -262,7 +259,7 @@ def train(hyp, opt):
     # accumulate = 1  # accumulate loss before optimizing
 
     hyp['weight_decay'] *= total_batch_size * accumulate / nbs  # scale weight_decay
-    print(f"Scaled weight_decay = {hyp['weight_decay']}")
+    LOGGER.info(f"Scaled weight_decay = {hyp['weight_decay']}")
 
     pg0, pg1, pg2 = get_group_param(model)
     lr_pg0, lr_pg1, lr_pg2, momentum_pg, warmup_steps = get_lr(opt, hyp, per_epoch_size, resume_epoch)
@@ -270,7 +267,7 @@ def train(hyp, opt):
         {'params': pg0, 'lr': lr_pg0, 'weight_decay': hyp['weight_decay']},
         {'params': pg1, 'lr': lr_pg1, 'weight_decay': 0.0},
         {'params': pg2, 'lr': lr_pg2, 'weight_decay': 0.0}]
-    print(f"optimizer loss scale is {opt.ms_optim_loss_scale}")
+    LOGGER.info(f"optimizer loss scale is {opt.ms_optim_loss_scale}")
     if opt.optimizer == "sgd":
         optimizer = nn.SGD(group_params, learning_rate=hyp['lr0'], momentum=hyp['momentum'], nesterov=True,
                            loss_scale=opt.ms_optim_loss_scale)
@@ -330,19 +327,23 @@ def train(hyp, opt):
     summary_dir = os.path.join(save_dir, opt.summary_dir, f"rank_{rank}")
     summary_interval = opt.summary_interval  # Unit: epoch
     steps_per_epoch = data_size
+    epoch_durations = []
+    start_train_time = time.time()
     with ms.SummaryRecord(summary_dir) if opt.summary else nullcontext() as summary_record:
         for cur_epoch in range(resume_epoch, epochs):
             cur_epoch = cur_epoch + 1
-            start_train_time = time.time()
+            start_epoch_time = time.time()
             loss = sink_process()
-            end_train_time = time.time()
-            print(f"Epoch {epochs - resume_epoch}/{cur_epoch}, step {data_size}, "
-                  f"epoch time {((end_train_time - start_train_time) * 1000):.2f} ms, "
-                  f"step time {((end_train_time - start_train_time) * 1000 / data_size):.2f} ms, "
-                  f"loss: {loss.asnumpy() / opt.batch_size:.4f}, "
-                  f"lbox loss: {train_step.network.lbox_loss.asnumpy():.4f}, "
-                  f"lobj loss: {train_step.network.lobj_loss.asnumpy():.4f}, "
-                  f"lcls loss: {train_step.network.lcls_loss.asnumpy():.4f}.", flush=True)
+            end_epoch_time = time.time()
+            epoch_duration = end_epoch_time - start_epoch_time
+            epoch_durations.append(epoch_duration)
+            LOGGER.info(f"Epoch {epochs - resume_epoch}/{cur_epoch}, step {data_size}, "
+                        f"Time epoch {epoch_duration:.2f} s, "
+                        f"step {epoch_duration * 1000 / data_size:.2f} ms, "
+                        f"loss total: {loss.asnumpy() / opt.batch_size:.4f}, "
+                        f"lbox: {train_step.network.lbox_loss.asnumpy():.4f}, "
+                        f"lobj: {train_step.network.lobj_loss.asnumpy():.4f}, "
+                        f"lcls: {train_step.network.lcls_loss.asnumpy():.4f}")
 
             if opt.profiler and (cur_epoch == run_profiler_epoch):
                 break
@@ -361,7 +362,7 @@ def train(hyp, opt):
                     append_dict = {"updates": ema.updates, "epoch": cur_epoch}
                     save_ema(ema, ema_ckpt_path, append_dict)
                     ema_ckpt_queue.append(ema_ckpt_path)
-                    print("save ckpt path:", ema_ckpt_path, flush=True)
+                    LOGGER.info("save ckpt path:", ema_ckpt_path)
                 if opt.enable_modelarts:
                     sync_data(ckpt_path, opt.train_url + "/weights/" + ckpt_path.split("/")[-1])
                     if ema:
@@ -373,9 +374,7 @@ def train(hyp, opt):
                        ((cur_epoch >= opt.eval_start_epoch) and (cur_epoch % opt.eval_epoch_interval) == 0)
 
             if opt.run_eval and is_eval_epoch():
-                # eval_results, stats_str, category_stats, category_stats_str = \
                 coco_result = val(opt, model, ema, infer_model, val_dataloader, val_dataset, cur_epoch=cur_epoch)
-                # mean_ap = eval_results[3]
                 mean_avg_precis = coco_result.get_map()
                 if opt.summary and summary_record is not None:
                     summary_record.add_value('scalar', 'map', ms.Tensor(mean_avg_precis))
@@ -388,9 +387,10 @@ def train(hyp, opt):
                         if coco_result.category_stats_strs is not None:
                             for idx, category_str in enumerate(coco_result.category_stats_strs):
                                 file.write(f"\nclass {names[idx]}:\n{category_str}\n")
+                    LOGGER.info(f"mAP {mean_avg_precis} at epoch {cur_epoch}")
                     if mean_avg_precis > best_map:
                         best_map = mean_avg_precis
-                        print(f"[INFO] Best result: Best mAP [{best_map}] at epoch [{cur_epoch}]", flush=True)
+                        LOGGER.info(f"Best mAP {best_map} at epoch {cur_epoch}")
                         # save the best checkpoint
                         ckpt_path = os.path.join(wdir, f"{model_name}_best.ckpt")
                         ms.save_checkpoint(model, ckpt_path, append_dict={"epoch": cur_epoch})
@@ -409,6 +409,28 @@ def train(hyp, opt):
                 summary_record.add_value('scalar', 'lobj', train_step.network.lobj_loss)
                 summary_record.add_value('scalar', 'lcls', train_step.network.lcls_loss)
                 summary_record.record(cur_epoch * steps_per_epoch)
+    end_train_time = time.time()
+
+    # Print train statistics
+    train_duration = end_train_time - start_train_time
+    num_samples = steps_per_epoch * batch_size  # samples trained in one epoch
+    num_trained_samples = (epochs - resume_epoch) * num_samples
+    throughput = 0
+    if len(epoch_durations) > 1:
+        avg_epoch_time = np.mean(epoch_durations[1:])  # Drop the first epoch time which includes compilation time
+        throughput = num_samples / avg_epoch_time
+    elif len(epoch_durations) == 1:
+        LOGGER.warning("The throughput is lower than that in normal condition because only one epoch is trained. "
+                       "The first epoch includes compilation procedure, which makes throughput lower.")
+        avg_epoch_time = epoch_durations[0]
+        throughput = num_samples / avg_epoch_time
+    else:
+        LOGGER.warning("There is no epoch has been trained. Throughput is set to 0.")
+    LOGGER.info("======== Training statistic results ========")
+    LOGGER.info(f"Best mAP: {best_map:.4f}")
+    LOGGER.info(f"Train time: {train_duration}")
+    LOGGER.info(f"Throughput: {throughput} images/second")
+    LOGGER.info(f"Number of trained samples: {num_trained_samples}")
     return 0
 
 
@@ -451,7 +473,7 @@ def main():
         profiler = Profiler()
 
     if not opt.evolve:
-        print(f"[INFO] OPT: {opt}")
+        LOGGER.info(f"OPT: {opt}")
         train(hyp, opt)
     else:
         raise NotImplementedError("Not support evolve train")

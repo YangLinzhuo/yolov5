@@ -4,7 +4,7 @@ import math
 import numpy as np
 
 from src.general import xywhn2xyxy, xyxy2xywh, xyn2xy, bbox_ioa, \
-    segment2box, resample_segments, colorstr, check_version
+    segment2box, resample_segments, colorstr, check_version, LOGGER
 
 
 class Albumentations:
@@ -26,14 +26,12 @@ class Albumentations:
                 A.ImageCompression(quality_lower=75, p=0.0)]  # transforms
             self.transform = A.Compose(T, bbox_params=A.BboxParams(format='yolo', label_fields=['class_labels']))
 
-            print(prefix + ', '.join(f'{x}'.replace('always_apply=False, ', '') for x in T if x.p), flush=True)
-            print("[INFO] albumentations load success", flush=True)
+            LOGGER.info(prefix + ', '.join(f'{x}'.replace('always_apply=False, ', '') for x in T if x.p))
+            LOGGER.info("albumentations load success")
         except ImportError:  # package not installed, skip
-            pass
-            print("[WARNING] package not installed, albumentations load failed", flush=True)
+            LOGGER.exception("[WARNING] package not installed, albumentations load failed")
         except Exception as e:
-            print(f'{prefix}{e}', flush=True)
-            print("[WARNING] albumentations load failed", flush=True)
+            LOGGER.exception("[WARNING] albumentations load failed")
 
     def __call__(self, im, labels, p=1.0):
         if self.transform and random.random() < p:
