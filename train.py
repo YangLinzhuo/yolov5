@@ -338,12 +338,12 @@ def train(hyp, opt):
             epoch_duration = end_epoch_time - start_epoch_time
             epoch_durations.append(epoch_duration)
             LOGGER.info(f"Epoch {epochs - resume_epoch}/{cur_epoch}, step {data_size}, "
-                        f"Time epoch {epoch_duration:.2f} s, "
-                        f"step {epoch_duration * 1000 / data_size:.2f} ms, "
-                        f"loss total: {loss.asnumpy() / opt.batch_size:.4f}, "
-                        f"lbox: {train_step.network.lbox_loss.asnumpy():.4f}, "
-                        f"lobj: {train_step.network.lobj_loss.asnumpy():.4f}, "
-                        f"lcls: {train_step.network.lcls_loss.asnumpy():.4f}")
+                        f"Time epoch {epoch_duration:.2f}s, "
+                        f"step {epoch_duration * 1000 / data_size:.2f}ms, "
+                        f"loss total {loss.asnumpy() / opt.batch_size:.4f}, "
+                        f"lbox {train_step.network.lbox_loss.asnumpy():.4f}, "
+                        f"lobj {train_step.network.lobj_loss.asnumpy():.4f}, "
+                        f"lcls {train_step.network.lcls_loss.asnumpy():.4f}")
 
             if opt.profiler and (cur_epoch == run_profiler_epoch):
                 break
@@ -414,7 +414,7 @@ def train(hyp, opt):
     # Print train statistics
     train_duration = end_train_time - start_train_time
     num_samples = steps_per_epoch * batch_size  # samples trained in one epoch
-    num_trained_samples = (epochs - resume_epoch) * num_samples
+    num_trained_samples = (epochs - resume_epoch) * num_samples  # samples trained on this device
     throughput = 0
     if len(epoch_durations) > 1:
         avg_epoch_time = np.mean(epoch_durations[1:])  # Drop the first epoch time which includes compilation time
@@ -428,7 +428,7 @@ def train(hyp, opt):
         LOGGER.warning("There is no epoch has been trained. Throughput is set to 0.")
     LOGGER.info("======== Training statistic results ========")
     LOGGER.info(f"Best mAP: {best_map:.4f}")
-    LOGGER.info(f"Train time: {train_duration}")
+    LOGGER.info(f"Train time: {train_duration}s")
     LOGGER.info(f"Throughput: {throughput} images/second")
     LOGGER.info(f"Number of trained samples: {num_trained_samples}")
     return 0

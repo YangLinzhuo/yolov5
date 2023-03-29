@@ -79,6 +79,6 @@ do
         --conf=0.001 \
         --iou_thres=0.65 \
         --project="${eval_exp}/eval_results" \
-        --batch_size=32 > log.txt 2>&1 &
+        --batch_size=128 > log.txt 2>&1 &
     cd "${cur_dir}" || exit
 done
