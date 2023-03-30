@@ -362,7 +362,7 @@ def train(hyp, opt):
                     append_dict = {"updates": ema.updates, "epoch": cur_epoch}
                     save_ema(ema, ema_ckpt_path, append_dict)
                     ema_ckpt_queue.append(ema_ckpt_path)
-                    LOGGER.info("save ckpt path:", ema_ckpt_path)
+                    LOGGER.info(f"Save ckpt path: {ema_ckpt_path}")
                 if opt.enable_modelarts:
                     sync_data(ckpt_path, opt.train_url + "/weights/" + ckpt_path.split("/")[-1])
                     if ema:
