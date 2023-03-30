@@ -337,13 +337,13 @@ def train(hyp, opt):
             end_epoch_time = time.time()
             epoch_duration = end_epoch_time - start_epoch_time
             epoch_durations.append(epoch_duration)
-            LOGGER.info(f"Epoch {epochs - resume_epoch}/{cur_epoch}, step {data_size}, "
-                        f"Time epoch {epoch_duration:.2f}s, "
-                        f"step {epoch_duration * 1000 / data_size:.2f}ms, "
-                        f"loss total {loss.asnumpy() / opt.batch_size:.4f}, "
-                        f"lbox {train_step.network.lbox_loss.asnumpy():.4f}, "
-                        f"lobj {train_step.network.lobj_loss.asnumpy():.4f}, "
-                        f"lcls {train_step.network.lcls_loss.asnumpy():.4f}")
+            print(f"Epoch {epochs - resume_epoch}/{cur_epoch}, step {data_size}, "
+                  f"Time epoch {epoch_duration:.2f}s, "
+                  f"step {epoch_duration * 1000 / data_size:.2f}ms, "
+                  f"loss total {loss.asnumpy() / opt.batch_size:.4f}, "
+                  f"lbox {train_step.network.lbox_loss.asnumpy():.4f}, "
+                  f"lobj {train_step.network.lobj_loss.asnumpy():.4f}, "
+                  f"lcls {train_step.network.lcls_loss.asnumpy():.4f}")
 
             if opt.profiler and (cur_epoch == run_profiler_epoch):
                 break
@@ -426,11 +426,11 @@ def train(hyp, opt):
         throughput = num_samples / avg_epoch_time
     else:
         LOGGER.warning("There is no epoch has been trained. Throughput is set to 0.")
-    LOGGER.info("======== Training statistic results ========")
-    LOGGER.info(f"Best mAP: {best_map:.4f}")
-    LOGGER.info(f"Train time: {train_duration}s")
-    LOGGER.info(f"Throughput: {throughput} images/second")
-    LOGGER.info(f"Number of trained samples: {num_trained_samples}")
+    print("======== Training statistic results ========")
+    print(f"Best mAP: {best_map:.4f}")
+    print(f"Train time: {train_duration:.2f}s")
+    print(f"Throughput: {throughput:.2f} images/second")
+    print(f"Number of trained samples: {num_trained_samples}")
     return 0
 
 
