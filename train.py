@@ -374,7 +374,10 @@ def train(hyp, opt):
                        ((cur_epoch >= opt.eval_start_epoch) and (cur_epoch % opt.eval_epoch_interval) == 0)
 
             if opt.run_eval and is_eval_epoch():
+                eval_start_time = time.time()
                 coco_result = val(opt, model, ema, infer_model, val_dataloader, val_dataset, cur_epoch=cur_epoch)
+                eval_end_time = time.time()
+                LOGGER.info(f"Evaluation time: {eval_end_time - eval_start_time:.2f}s")
                 mean_avg_precis = coco_result.get_map()
                 if opt.summary and summary_record is not None:
                     summary_record.add_value('scalar', 'map', ms.Tensor(mean_avg_precis))
@@ -431,6 +434,8 @@ def train(hyp, opt):
     LOGGER.info(f"Train time: {train_duration:.2f}s")
     LOGGER.info(f"Throughput: {throughput:.2f} images/second")
     LOGGER.info(f"Number of trained samples: {num_trained_samples}")
+    LOGGER.info(f"Total throughput: {throughput * rank_size:.2f} images/second")
+    LOGGER.info(f"Total number of trained samples: {num_trained_samples * rank_size}")
     return 0
 
 
