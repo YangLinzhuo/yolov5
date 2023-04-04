@@ -591,7 +591,6 @@ class EvalManager:
             label = [targets[targets[:, 0] == i, 1:] for i in range(nb)] if opt.save_hybrid else []  # for autolabelling
             out, nms_duration = self._nms(pred_out, label)
             time_stats.nms_duration += nms_duration
-
             # Metrics
             metric_duration = self._compute_metrics(img, targets, out, paths, shapes, metric_stats)
             time_stats.metric_duration += metric_duration
