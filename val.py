@@ -743,7 +743,7 @@ def main_test():
         print("opt:", opt)
         opt.save_txt = opt.save_txt | opt.save_hybrid
     test_manager = TestManager(opt)
-    test_manager()
+    test_manager.test()
 
 
 if __name__ == '__main__':
