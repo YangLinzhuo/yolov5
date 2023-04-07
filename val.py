@@ -476,7 +476,6 @@ class EvalManager:
         nms_duration = time.time() - nms_start_time
         return out, nms_duration
 
-<<<<<<< HEAD
     def _write_txt(self, pred, shape, path):
         # Save result to txt
         path = Path(path)

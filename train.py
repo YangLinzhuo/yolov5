@@ -168,10 +168,10 @@ def val(opt, model, ema, infer_model, val_dataloader, val_dataset, cur_epoch):
 
 
 def val_test(opt, model, ema, infer_model, val_dataloader, val_dataset, cur_epoch):
-    LOGGER.info("Evaluating...", flush=True)
+    LOGGER.info("Evaluating...")
     param_dict = {}
     if opt.ema:
-        LOGGER.info("ema parameter update", flush=True)
+        LOGGER.info("ema parameter update")
         for p in ema.ema_weights:
             name = p.name[len("ema."):]
             param_dict[name] = p.data
