@@ -183,7 +183,6 @@ def val_test(opt, model, ema, infer_model, val_dataloader, val_dataset, cur_epoc
     ms.load_param_into_net(infer_model, param_dict)
     del param_dict
     infer_model.set_train(False)
-    from test import TestManager
     test_manager = TestManager(opt)
     metric_stats, _, _, coco_result = test_manager.test(infer_model, val_dataset, val_dataloader, cur_epoch)
     infer_model.set_train(True)

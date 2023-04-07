@@ -476,6 +476,7 @@ class EvalManager:
         nms_duration = time.time() - nms_start_time
         return out, nms_duration
 
+<<<<<<< HEAD
     def _write_txt(self, pred, shape, path):
         # Save result to txt
         path = Path(path)
@@ -711,39 +712,6 @@ def main():
         np.savetxt(f, y, fmt='%10.4g')  # save
         os.system('zip -r study.zip study_*.txt')
         plot_study_txt(x=x)  # plot
-
-
-def main_test():
-    parser = get_args_test()
-    opt = parser.parse_args()
-    opt.save_json |= opt.data.endswith('coco.yaml')
-    opt.data, opt.cfg, opt.hyp = check_file(opt.data), check_file(opt.cfg), check_file(opt.hyp)  # check files
-    print(opt)
-
-    ms_mode = ms.GRAPH_MODE if opt.ms_mode == "graph" else ms.PYNATIVE_MODE
-    ms.set_context(mode=ms.PYNATIVE_MODE, device_target=opt.device_target)
-    # ms.set_context(pynative_synchronize=True)
-    context.set_context(mode=ms_mode, device_target=opt.device_target)
-    if opt.device_target == "Ascend":
-        device_id = int(os.getenv('DEVICE_ID', 0))
-        context.set_context(device_id=device_id)
-    rank, rank_size, parallel_mode = 0, 1, ParallelMode.STAND_ALONE
-    # Distribute Test
-    if opt.is_distributed:
-        init()
-        rank, rank_size, parallel_mode = get_rank(), get_group_size(), ParallelMode.DATA_PARALLEL
-    context.set_auto_parallel_context(parallel_mode=parallel_mode, gradients_mean=True, device_num=rank_size)
-    # opt.total_batch_size = opt.batch_size
-    opt.rank_size = rank_size
-    opt.rank = rank
-    if rank_size > 1:
-        assert opt.batch_size % opt.rank_size == 0, '--batch-size must be multiple of device count'
-        # opt.batch_size = opt.total_batch_size // opt.rank_size
-    if opt.task in ('train', 'val', 'test'):  # run normally
-        print("opt:", opt)
-        opt.save_txt = opt.save_txt | opt.save_hybrid
-    test_manager = TestManager(opt)
-    test_manager.test()
 
 
 if __name__ == '__main__':
