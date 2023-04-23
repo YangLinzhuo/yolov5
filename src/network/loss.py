@@ -326,6 +326,7 @@ class ComputeLoss(nn.Cell):
             [0, -1],  # j,k,l,m
             # [1, 1], [1, -1], [-1, 1], [-1, -1],  # jk,jm,lk,lm
         ], dtype=ms.float32)
+        self.reshape = ops.Reshape()
 
     def scatter_index_tensor(self, x, index):
         x_tmp = ops.transpose(x.reshape((-1, x.shape[-1])), (1, 0))
@@ -347,7 +348,9 @@ class ComputeLoss(nn.Cell):
             tmask = tmasks[layer_index]
             # b, a, gj, gi = ops.split(indices[layer_index] * tmask[None, :], 0, 4)  # image, anchor, gridy, gridx
             b, a, gj, gi = ops.tensor_split(indices[layer_index] * tmask[None, :], 4, 0)  # image, anchor, gridy, gridx
-            b, a, gj, gi = b.view(-1), a.view(-1), gj.view(-1), gi.view(-1)
+            # b, a, gj, gi = b.view(-1), a.view(-1), gj.view(-1), gi.view(-1)
+            b, a = self.reshape(b, (-1, )), self.reshape(a, (-1, ))
+            gj, gi = self.reshape(gj, (-1, )), self.reshape(gi, (-1, ))
             tobj = ops.zeros(pi.shape[:4], pi.dtype)  # target obj
 
             n = b.shape[0]  # number of targets
@@ -398,11 +401,13 @@ class ComputeLoss(nn.Cell):
 
     def build_targets(self, p, targets):
         # Build targets for compute_loss(), input targets(image,class,x,y,w,h)
-        targets = targets.view(-1, 6)
+        # targets = targets.view(-1, 6)
+        targets = self.reshape(targets, (-1, 6))
         mask_t = targets[:, 1] >= 0
         na, nt = self.na, targets.shape[0]  # number of anchors, targets
         tcls, tbox, indices, anch, tmasks = (), (), (), (), ()
         gain = ops.ones(7, ms.int32)  # normalized to gridspace gain
+        # ai = ops.tile(mnp.arange(na).view(-1, 1), (1, nt))  # shape: (na, nt)
         ai = ops.tile(mnp.arange(na).view(-1, 1), (1, nt))  # shape: (na, nt)
         ai = ops.cast(ai, targets.dtype)
         targets = ops.concat((ops.tile(targets, (na, 1, 1)), ai[:, :, None]),
@@ -421,8 +426,10 @@ class ComputeLoss(nn.Cell):
             r = t[..., 4:6] / anchors[:, None]  # wh ratio
             j = ops.maximum(r, 1 / r).max(2) < self.hyp_anchor_t  # compare
 
-            mask_m_t = ops.logical_and(j, mask_t[None, :]).view(-1)
-            t = t.view(-1, 7)
+            # mask_m_t = ops.logical_and(j, mask_t[None, :]).view(-1)
+            mask_m_t = self.reshape(ops.logical_and(j, mask_t[None, :]), (-1, ))
+            # t = t.view(-1, 7)
+            t = self.reshape(t, (-1, 7))
 
             # Offsets
             gxy = t[:, 2:4]  # grid xy
@@ -449,14 +456,17 @@ class ComputeLoss(nn.Cell):
             center = ops.ones_like(j_l)
             j = ops.stack((center, j_l, k_m))
             t = ops.tile(t, (3, 1, 1))  # shape(5, *, 7)
-            t = t.view(-1, 7)
-            mask_m_t = (ops.cast(j, ms.int32) * ops.cast(mask_m_t[None, :], ms.int32)).view(-1)
+            # t = t.view(-1, 7)
+            t = self.reshape(t, (-1, 7))
+            # mask_m_t = (ops.cast(j, ms.int32) * ops.cast(mask_m_t[None, :], ms.int32)).view(-1)
+            mask_m_t = self.reshape((ops.cast(j, ms.int32) * ops.cast(mask_m_t[None, :], ms.int32)), (-1, ))
             offsets = (ops.zeros_like(gxy)[None, :, :] + off[:, None, :])  # (1,*,2) + (5,1,2) -> (5,na*nt,2)
             offsets_new = ops.zeros((3,) + offsets.shape[1:], offsets.dtype)
             offsets_new[1:2, :, :] = ops.select(tag1.astype(ms.bool_), offsets[1, :, :], offsets[3, :, :])
             offsets_new[2:3, :, :] = ops.select(tag2.astype(ms.bool_), offsets[2, :, :], offsets[4, :, :])
             offsets = offsets_new
-            offsets = offsets.view(-1, 2)
+            # offsets = offsets.view(-1, 2)
+            offsets = self.reshape(offsets, (-1, 2))
 
             # Define
             b, c, gxy, gwh, a = ops.cast(t[:, 0], ms.int32), \

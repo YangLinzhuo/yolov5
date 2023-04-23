@@ -101,7 +101,8 @@ class Model(nn.Cell):
         self.model, self.save, self.layers_param = parse_model(deepcopy(self.yaml), ch=[ch], sync_bn=sync_bn)
         self.names = [str(i) for i in range(self.yaml['nc'])]  # default names
         # print([x.shape for x in self.forward(torch.zeros(1, ch, 64, 64))])
-
+        self.reshape = ops.Reshape()
+        self.log = ops.Log()
         # Recompute
         if opt is not None:
             if opt.recompute and opt.recompute_layers > 0:
@@ -116,8 +117,21 @@ class Model(nn.Cell):
             # s = 256  # 2x min stride
             # m.stride = torch.tensor([s / x.shape[-2] for x in self.forward(torch.zeros(1, ch, s, s))])  # forward
             m.stride = Tensor(np.array(self.yaml['stride']), ms.int32)
+            # m.stride = np.array(self.yaml['stride'], np.int32)
             check_anchor_order(m)
-            m.anchors /= m.stride.view(-1, 1, 1)
+            # m.anchors /= m.stride.view(-1, 1, 1)
+            # m.anchors_ /= np.reshape(m.stride, (-1, 1, 1))
+            # m.anchors /= self.reshape(m.stride, (-1, 1, 1))
+            ops.assign(m.anchors, ops.div(m.anchors, ops.reshape(m.stride, (-1, 1, 1))))
+            # m.anchors = ms.Parameter(
+            #     Tensor(m.anchors_, ms.float32),
+            #     requires_grad=False
+            # )
+            # m.anchor_grid = ms.Parameter(
+            #     Tensor(m.anchor_grid_, ms.float32),
+            #     requires_grad=False
+            # )  # shape(nl,1,na,1,1,2)
+            # m.stride = Tensor(m.stride, ms.int32)
             self.stride = m.stride
             self.stride_np = np.array(self.yaml['stride'])
             self._initialize_biases()  # only run once
@@ -126,7 +140,7 @@ class Model(nn.Cell):
         # Multi-scale
         if opt is not None:
             self.multi_scale = opt.multi_scale if hasattr(opt, 'multi_scale') else False
-            self.gs = max(int(self.stride.asnumpy().max()), 32)  # grid size (max stride)
+            self.gs = max(int(self.stride_np.max()), 32)  # grid size (max stride)
             self.imgsz, _ = [check_img_size(x, self.gs) for x in opt.img_size]  # verify imgsz are gs-multiples
 
         # Init weights, biases
@@ -190,11 +204,15 @@ class Model(nn.Cell):
         # cf = torch.bincount(torch.tensor(np.concatenate(dataset.labels, 0)[:, 0]).long(), minlength=nc) + 1.
         m = self.model[-1]  # Detect() module
         for mi, s in zip(m.m, m.stride):  # from
-            s = s.asnumpy()
-            b = mi.bias.view(m.na, -1).asnumpy()  # conv.bias(255) to (3,85)
-            b[:, 4] += math.log(8 / (640 / s) ** 2)  # obj (8 objects per 640 image)
-            b[:, 5:] += math.log(0.6 / (m.nc - 0.99999)) if cf is None else np.log(cf / cf.sum())  # cls
-            mi.bias = ops.assign(mi.bias, Tensor(b, ms.float32).view(-1))
+            # s = s.asnumpy()
+            # b = mi.bias.view(m.na, -1).asnumpy()  # conv.bias(255) to (3,85)
+            b = self.reshape(mi.bias, (m.na, -1)) #.asnumpy()     # conv.bias(255) to (3,85)
+            # b[:, 4] += math.log(8 / (640 / s) ** 2)  # obj (8 objects per 640 image)
+            # b[:, 5:] += math.log(0.6 / (m.nc - 0.99999)) if cf is None else np.log(cf / cf.sum())  # cls
+            # mi.bias = ops.assign(mi.bias, Tensor(b, ms.float32).view(-1))
+            b[:, 4] += self.log(8 / (640 / s) ** 2)
+            b[:, 5:] += self.log(0.6 / (m.nc - 0.99999)) if cf is None else ms.Tensor(np.log(cf / cf.sum()), ms.float32)  # cls
+            ops.assign(mi.bias, self.reshape(b, (-1, )))
 
 
 def main():

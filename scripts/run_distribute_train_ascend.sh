@@ -79,8 +79,9 @@ do
         --img_size=640 \
         --conf_thres=0.001 \
         --iou_thres=0.65 \
-        --run_eval=True \
+        --run_eval=False \
         --eval_epoch_interval=10 \
+        --ema=False \
         --project="${train_exp}/eval_results" > log.txt 2>&1 &
     cd "${cur_dir}" || exit
 done

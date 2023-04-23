@@ -192,7 +192,9 @@ class TrainManager:
         # Create Model
         model = Model(opt.cfg, ch=3, nc=num_cls, anchors=hyp.get('anchors'), sync_bn=sync_bn, opt=opt, hyp=hyp)
         model.to_float(ms.float16)
-        ema = EMA(model) if opt.ema else None
+        model_cp = Model(opt.cfg, ch=3, nc=num_cls, anchors=hyp.get('anchors'), sync_bn=sync_bn, opt=opt, hyp=hyp)
+        model_cp.to_float(ms.float16)
+        ema = EMA(model_cp) if opt.ema else None
 
         pretrained = opt.weights.endswith('.ckpt')
         resume_epoch = 0
@@ -212,7 +214,12 @@ class TrainManager:
         dataloader, dataset, per_epoch_size = self.get_dataset(model, train_epoch_size, mode="train")
         infer_model, val_dataloader, val_dataset = None, None, None
         if opt.save_checkpoint or opt.run_eval:
-            infer_model = copy.deepcopy(model) if opt.ema else model
+            # infer_model = copy.deepcopy(model) if opt.ema else model
+            infer_model = model
+            if opt.ema:
+                infer_model = Model(opt.cfg, ch=3, nc=num_cls, anchors=hyp.get('anchors'),
+                                    sync_bn=sync_bn, opt=opt, hyp=hyp)
+                infer_model.to_float(ms.float16)
             val_dataloader, val_dataset, _ = self.get_dataset(model, epoch_size=1, mode="val")
         mlc = np.concatenate(dataset.labels, 0)[:, 0].max()  # max label class
         assert mlc < num_cls, 'Label class %g exceeds nc=%g in %s. Possible class labels are 0-%g'\
@@ -337,7 +344,8 @@ class TrainManager:
 
     def get_dataset(self, model, epoch_size, mode="train"):
         opt = self.opt
-        gs = max(int(model.stride.asnumpy().max()), 32)  # grid size (max stride)
+        # gs = max(int(model.stride.asnumpy().max()), 32)  # grid size (max stride)
+        gs = max(int(model.stride_np.max()), 32)  # grid size (max stride)
         imgsz, _ = [check_img_size(x, gs) for x in opt.img_size]  # verify imgsz are gs-multiples
 
         if mode == "train":

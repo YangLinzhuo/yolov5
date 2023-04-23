@@ -170,13 +170,16 @@ class Contract(nn.Cell):
     def __init__(self, gain=2):
         super().__init__()
         self.gain = gain
+        self.reshape = ops.Reshape()
 
     def construct(self, x):
         b, c, h, w = x.size()  # assert (h / s == 0) and (W / s == 0), 'Indivisible gain'
         s = self.gain
-        x = x.view(b, c, h // s, s, w // s, s)  # x(1,64,40,2,40,2)
+        # x = x.view(b, c, h // s, s, w // s, s)  # x(1,64,40,2,40,2)
+        x = self.reshape(x, (b, c, h // s, s, w // s, s))   # x(1,64,40,2,40,2)
         x = x.permute(0, 3, 5, 1, 2, 4).contiguous()  # x(1,2,2,64,40,40)
-        return x.view(b, c * s * s, h // s, w // s)  # x(1,256,40,40)
+        # return x.view(b, c * s * s, h // s, w // s)  # x(1,256,40,40)
+        return self.reshape(x, (b, c * s * s, h // s, w // s))  # x(1,256,40,40)
 
 
 class Expand(nn.Cell):
@@ -184,13 +187,16 @@ class Expand(nn.Cell):
     def __init__(self, gain=2):
         super().__init__()
         self.gain = gain
+        self.reshape = ops.Reshape()
 
     def construct(self, x):
         b, c, h, w = x.size()  # assert C / s ** 2 == 0, 'Indivisible gain'
         s = self.gain
-        x = x.view(b, s, s, c // s ** 2, h, w)  # x(1,2,2,16,80,80)
+        # x = x.view(b, s, s, c // s ** 2, h, w)  # x(1,2,2,16,80,80)
+        x = self.reshape(x, (b, s, s, c // s ** 2, h, w))  # x(1,2,2,16,80,80)
         x = x.permute(0, 3, 4, 1, 5, 2).contiguous()  # x(1,16,80,2,80,2)
-        return x.view(b, c // s ** 2, h * s, w * s)  # x(1,16,160,160)
+        # return x.view(b, c // s ** 2, h * s, w * s)  # x(1,16,160,160)
+        return self.reshape(x, (b, c // s ** 2, h * s, w * s))  # x(1,16,160,160)
 
 
 class BaseCell(nn.Cell):
@@ -230,16 +236,30 @@ class Detect(nn.Cell):
         #                                                     requires_grad=False))
         #                               for _ in range(self.nl)])
         # self.grid = [Tensor(np.zeros(1), ms.float32)] * self.nl  # init grid
-        self.anchors = ms.Parameter(Tensor(anchors, ms.float32).view(self.nl, -1, 2),
-                                    requires_grad=False)  # shape(nl,na,2)
-        self.anchor_grid = ms.Parameter(Tensor(anchors, ms.float32).view(self.nl, 1, -1, 1, 1, 2),
-                                        requires_grad=False)  # shape(nl,1,na,1,1,2)
+        # self.anchors = ms.Parameter(Tensor(anchors, ms.float32).view(self.nl, -1, 2),
+        #                             requires_grad=False)  # shape(nl,na,2)
+        # self.anchors_ = np.array(anchors, np.float32).reshape((self.nl, -1, 2))
+        self.anchors = ms.Parameter(
+            Tensor(np.array(anchors, np.float32).reshape((self.nl, -1, 2)), ms.float32),
+            requires_grad=False
+        )
+        # self.anchor_grid = ms.Parameter(Tensor(anchors, ms.float32).view(self.nl, 1, -1, 1, 1, 2),
+        #                                 requires_grad=False)  # shape(nl,1,na,1,1,2)
+        # self.anchor_grid_ = np.array(anchors, np.float32).reshape((self.nl, 1, -1, 1, 1, 2))
+        self.anchor_grid = ms.Parameter(
+            Tensor(np.array(anchors, np.float32).reshape((self.nl, 1, -1, 1, 1, 2)), ms.float32),
+            requires_grad=False
+        )  # shape(nl,1,na,1,1,2)
+        # self.anchors = None
+        # self.anchor_grid = None
+
 
         self.m = nn.CellList([nn.Conv2d(x, self.no * self.na, 1,
                                         pad_mode="valid",
                                         has_bias=True,
                                         weight_init=HeUniform(negative_slope=math.sqrt(5)),
                                         bias_init=_init_bias((self.no * self.na, x, 1, 1))) for x in ch])  # output conv
+        self.reshape = ops.Reshape()
 
     def construct(self, x):
         z = ()  # inference output
@@ -250,7 +270,8 @@ class Detect(nn.Cell):
                 outs += (out,)
                 continue
             bs, _, ny, nx = out.shape  # (bs,255,20,20)
-            out = ops.Transpose()(out.view(bs, self.na, self.no, ny, nx), (0, 1, 3, 4, 2))  # (bs,3,20,20,85)
+            # out = ops.Transpose()(out.view(bs, self.na, self.no, ny, nx), (0, 1, 3, 4, 2))  # (bs,3,20,20,85)
+            out = ops.Transpose()(self.reshape(out, (bs, self.na, self.no, ny, nx)), (0, 1, 3, 4, 2))  # (bs,3,20,20,85)
             out = out
             outs += (out,)
 
@@ -266,15 +287,16 @@ class Detect(nn.Cell):
                 # y[..., 0:2] = (y[..., 0:2] * 2. - 0.5 + self.grid_cell[i].param) * self.stride[i]  # xy
                 y[..., 0:2] = (y[..., 0:2] * 2. - 0.5 + grid_tensor) * self.stride[i]  # xy
                 y[..., 2:4] = (y[..., 2:4] * 2) ** 2 * self.anchor_grid[i]  # wh
-                z += (y.view(bs, -1, self.no),)
+                # z += (y.view(bs, -1, self.no),)
+                z += (self.reshape(y, (bs, -1, self.no)),)
 
         # return outs
         return outs if self.training or self.is_export else (ops.concat(z, 1), outs)
 
-    @staticmethod
-    def _make_grid(nx=20, ny=20, dtype=ms.float32):
+    def _make_grid(self, nx=20, ny=20, dtype=ms.float32):
         xv, yv = ops.meshgrid(mnp.arange(nx), mnp.arange(ny))
-        return ops.cast(ops.stack((xv, yv), 2).view((1, 1, ny, nx, 2)), dtype)
+        # return ops.cast(ops.stack((xv, yv), 2).view((1, 1, ny, nx, 2)), dtype)
+        return ops.cast(self.reshape(ops.stack((xv, yv), 2), (1, 1, ny, nx, 2)), dtype)
 
     def convert(self, z):
         z = ops.concat(z, 1)
@@ -419,6 +441,26 @@ def _get_layer_module(m: str):
     return module
 
 
+class ParamTuple(ms.ParameterTuple):
+    def __new__(cls, iterable, prefix=''):
+        """Create instance object of ParameterTuple."""
+        data = tuple(iterable)
+        ids = set()
+        names = set()
+        for x in data:
+            if not isinstance(x, ms.Parameter):
+                raise TypeError(f"For ParameterTuple initialization, "
+                                f"ParameterTuple input should be 'Parameter' collection, "
+                                f"but got a {type(iterable)}. ")
+            if id(x) not in ids:
+                if x.name in names:
+                    raise ValueError("The value {} , its name '{}' already exists. "
+                                     "Please set a unique name for the parameter.".format(x, x.name))
+                names.add(prefix + x.name)
+                ids.add(id(x))
+        return tuple.__new__(ParamTuple, tuple(data))
+
+
 class EMA(nn.Cell):
     """ Model Exponential Moving Average from https://github.com/rwightman/pytorch-image-models
     Keep a moving average of everything in the model state_dict (parameters and buffers).
@@ -430,9 +472,11 @@ class EMA(nn.Cell):
     def __init__(self, model, decay=0.9999, updates=0):
         super(EMA, self).__init__()
         # Create EMA
-        self.ema_model = copy.deepcopy(model)
-        self.weights = ms.ParameterTuple(list(model.get_parameters()))
-        self.ema_weights = self.weights.clone("ema", init='same')
+        # self.ema_model = copy.deepcopy(model)
+        self.ema_model = model
+        self.weights = ParamTuple(list(model.get_parameters()))
+        # self.ema_weights = self.weights.clone("ema", init='same')
+        self.ema_weights = ParamTuple(list(model.get_parameters()), prefix='ema')
         self.updates = ms.Parameter(Tensor(updates, ms.float32), requires_grad=False)  # number of EMA updates
         self.decay_value = decay
         self.assign = ops.Assign()

@@ -15,15 +15,34 @@
 
 # Auto-anchor utils
 
+import numpy as np
 from mindspore import ops
 
+from src.network.common import Detect
 
-def check_anchor_order(m):
-    # Check anchor order against stride order for YOLO Detect() module m, and correct if necessary
-    a = ops.ReduceProd()(m.anchor_grid, -1).view(-1) # anchor area
-    da = a[-1] - a[0]  # delta a
-    ds = m.stride[-1] - m.stride[0]  # delta s
-    if ops.Sign()(da) != ops.Sign()(ds): # same order
+
+# def check_anchor_order(m):
+#     # Check anchor order against stride order for YOLO Detect() module m, and correct if necessary
+#     a = ops.ReduceProd()(m.anchor_grid, -1).view(-1) # anchor area
+#     da = a[-1] - a[0]  # delta a
+#     ds = m.stride[-1] - m.stride[0]  # delta s
+#     if ops.Sign()(da) != ops.Sign()(ds): # same order
+#         print('Reversing anchor order')
+#         m.anchors[:] = ops.ReverseV2(axis=0)(m.anchors)
+#         m.anchor_grid[:] = ops.ReverseV2(axis=0)(m.anchor_grid)
+
+
+def check_anchor_order(m: Detect):
+    a = m.anchor_grid.asnumpy()
+    # a = np.prod(m.anchor_grid_, -1).reshape((-1, ))
+    a = np.reshape(a, (-1, 1))
+    da = a[-1] - a[0]
+    ds = m.stride[-1] - m.stride[0]
+    if np.sign(da) != np.sign(ds):
         print('Reversing anchor order')
-        m.anchors[:] = ops.ReverseV2(axis=0)(m.anchors)
-        m.anchor_grid[:] = ops.ReverseV2(axis=0)(m.anchor_grid)
+        # m.anchors_[:] = np.flip(m.anchors_, axis=0)
+        # m.anchor_grid_[:] = np.flip(m.anchor_grid_, axis=0)
+        # m.anchors[:] = ops.ReverseV2(axis=[0])(m.anchors)
+        # m.anchor_grid[:] = ops.ReverseV2(axis=[0])(m.anchor_grid)
+        ops.assign(m.anchors, ops.ReverseV2(axis=[0])(m.anchors))
+        ops.assign(m.anchor_grid, ops.ReverseV2(axis=[0])(m.anchor_grid))
