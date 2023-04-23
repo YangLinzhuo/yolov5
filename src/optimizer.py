@@ -19,7 +19,7 @@ import numpy as np
 import mindspore as ms
 import mindspore.common.dtype as mstype
 from mindspore import nn
-from mindspore._checkparam import Validator
+from mindspore import _checkparam as Validator
 from mindspore.common.api import ms_function
 from mindspore.common.parameter import Parameter
 from mindspore.common.tensor import Tensor
