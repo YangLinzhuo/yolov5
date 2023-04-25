@@ -228,6 +228,7 @@ class Detect(nn.Cell):
         self.concat = False
         self.is_export = False
 
+        self.raw_anchors = anchors
         self.nc = nc  # number of classes
         self.no = nc + 5  # number of outputs per anchor
         self.nl = len(anchors)  # number of detection layers
@@ -238,20 +239,20 @@ class Detect(nn.Cell):
         # self.grid = [Tensor(np.zeros(1), ms.float32)] * self.nl  # init grid
         # self.anchors = ms.Parameter(Tensor(anchors, ms.float32).view(self.nl, -1, 2),
         #                             requires_grad=False)  # shape(nl,na,2)
-        # self.anchors_ = np.array(anchors, np.float32).reshape((self.nl, -1, 2))
-        self.anchors = ms.Parameter(
-            Tensor(np.array(anchors, np.float32).reshape((self.nl, -1, 2)), ms.float32),
-            requires_grad=False
-        )
+        self.anchors_ = np.array(anchors, np.float32).reshape((self.nl, -1, 2))
+        # self.anchors = ms.Parameter(
+        #     Tensor(np.array(anchors, np.float32).reshape((self.nl, -1, 2)), ms.float32),
+        #     requires_grad=False
+        # )
         # self.anchor_grid = ms.Parameter(Tensor(anchors, ms.float32).view(self.nl, 1, -1, 1, 1, 2),
         #                                 requires_grad=False)  # shape(nl,1,na,1,1,2)
-        # self.anchor_grid_ = np.array(anchors, np.float32).reshape((self.nl, 1, -1, 1, 1, 2))
-        self.anchor_grid = ms.Parameter(
-            Tensor(np.array(anchors, np.float32).reshape((self.nl, 1, -1, 1, 1, 2)), ms.float32),
-            requires_grad=False
-        )  # shape(nl,1,na,1,1,2)
-        # self.anchors = None
-        # self.anchor_grid = None
+        self.anchor_grid_ = np.array(anchors, np.float32).reshape((self.nl, 1, -1, 1, 1, 2))
+        # self.anchor_grid = ms.Parameter(
+        #     Tensor(np.array(anchors, np.float32).reshape((self.nl, 1, -1, 1, 1, 2)), ms.float32),
+        #     requires_grad=False
+        # )  # shape(nl,1,na,1,1,2)
+        self.anchors = None
+        self.anchor_grid = None
 
 
         self.m = nn.CellList([nn.Conv2d(x, self.no * self.na, 1,

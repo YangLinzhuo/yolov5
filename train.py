@@ -105,13 +105,16 @@ def create_train_network(model, compute_loss, ema, optimizer, loss_scaler=None,
             # if sizes is not None:
             #     x = ops.interpolate(x, sizes=sizes, coordinate_transformation_mode="asymmetric", mode="bilinear")
             pred = self.model(x)
-            loss, loss_items = self.compute_loss(pred, label)
-            loss_items = ops.stop_gradient(loss_items)
-            loss *= self.rank_size
-            loss = F.depend(loss, ops.assign(self.lbox_loss, loss_items[0]))
-            loss = F.depend(loss, ops.assign(self.lobj_loss, loss_items[1]))
-            loss = F.depend(loss, ops.assign(self.lcls_loss, loss_items[2]))
-            return loss
+            ### Original Code
+            # loss, loss_items = self.compute_loss(pred, label)
+            # loss_items = ops.stop_gradient(loss_items)
+            # loss *= self.rank_size
+            # loss = F.depend(loss, ops.assign(self.lbox_loss, loss_items[0]))
+            # loss = F.depend(loss, ops.assign(self.lobj_loss, loss_items[1]))
+            # loss = F.depend(loss, ops.assign(self.lcls_loss, loss_items[2]))
+            # return loss
+            ### Original Code
+            return pred
 
     print(f"[INFO] rank_size: {rank_size}", flush=True)
     net_with_loss = NetworkWithLoss(model, compute_loss, rank_size)
@@ -192,9 +195,11 @@ class TrainManager:
         # Create Model
         model = Model(opt.cfg, ch=3, nc=num_cls, anchors=hyp.get('anchors'), sync_bn=sync_bn, opt=opt, hyp=hyp)
         model.to_float(ms.float16)
-        model_cp = Model(opt.cfg, ch=3, nc=num_cls, anchors=hyp.get('anchors'), sync_bn=sync_bn, opt=opt, hyp=hyp)
-        model_cp.to_float(ms.float16)
-        ema = EMA(model_cp) if opt.ema else None
+        ema = None
+        if opt.ema:
+            model_cp = Model(opt.cfg, ch=3, nc=num_cls, anchors=hyp.get('anchors'), sync_bn=sync_bn, opt=opt, hyp=hyp)
+            model_cp.to_float(ms.float16)
+            ema = EMA(model_cp)
 
         pretrained = opt.weights.endswith('.ckpt')
         resume_epoch = 0

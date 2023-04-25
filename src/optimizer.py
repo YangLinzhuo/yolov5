@@ -178,7 +178,12 @@ class YoloMomentum(nn.Optimizer):
             self.list_moment = True
         self.params = self._parameters
         self.use_nesterov = Validator.check_bool(use_nesterov)
-        self.moments = self.params.clone(prefix="moments", init='zeros')
+        from src.network.common import ParamTuple
+        param_shape = [(p.shape, p.name) for p in self.params]
+        param_list = [(np.zeros(shape, np.float32), name) for (shape, name) in param_shape]
+        param_list = [ms.Parameter(ms.Tensor(p, ms.float32), name=name) for (p, name) in param_list]
+        # self.moments = self.params.clone(prefix="moments", init='zeros')
+        self.moments = ParamTuple(param_list, prefix='moments')
         self.opt = P.ApplyMomentum(use_nesterov=self.use_nesterov)
 
         self.distributed_opts, self.use_distributed_opt_flags = \

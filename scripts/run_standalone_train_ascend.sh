@@ -48,6 +48,8 @@ python train.py \
         --accumulate=False \
         --epochs=300 \
         --iou_thres=0.65 \
+        --ema=False \
+        --run_eval=False \
         --batch_size=32  > log.txt 2>&1 &
 cd ..
 

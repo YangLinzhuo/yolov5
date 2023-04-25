@@ -33,16 +33,19 @@ from src.network.common import Detect
 
 
 def check_anchor_order(m: Detect):
-    a = m.anchor_grid.asnumpy()
-    # a = np.prod(m.anchor_grid_, -1).reshape((-1, ))
-    a = np.reshape(a, (-1, 1))
+    # a = m.anchor_grid.asnumpy()
+    # a = np.prod(a, -1).reshape((-1, ))
+    a = np.prod(m.anchor_grid_, -1).reshape((-1, ))
     da = a[-1] - a[0]
-    ds = m.stride[-1] - m.stride[0]
+    stride_np = m.stride.asnumpy()
+    ds = stride_np[-1] - stride_np[0]
     if np.sign(da) != np.sign(ds):
         print('Reversing anchor order')
         # m.anchors_[:] = np.flip(m.anchors_, axis=0)
         # m.anchor_grid_[:] = np.flip(m.anchor_grid_, axis=0)
         # m.anchors[:] = ops.ReverseV2(axis=[0])(m.anchors)
         # m.anchor_grid[:] = ops.ReverseV2(axis=[0])(m.anchor_grid)
-        ops.assign(m.anchors, ops.ReverseV2(axis=[0])(m.anchors))
-        ops.assign(m.anchor_grid, ops.ReverseV2(axis=[0])(m.anchor_grid))
+        # ops.assign(m.anchors, ops.ReverseV2(axis=[0])(m.anchors))
+        # ops.assign(m.anchor_grid, ops.ReverseV2(axis=[0])(m.anchor_grid))
+        m.anchors_ = np.flip(m.anchors_, axis=0)
+        m.anchor_grid_ = np.flip(m.anchor_grid_, axis=0)

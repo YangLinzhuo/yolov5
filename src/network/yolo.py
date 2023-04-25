@@ -122,15 +122,17 @@ class Model(nn.Cell):
             # m.anchors /= m.stride.view(-1, 1, 1)
             # m.anchors_ /= np.reshape(m.stride, (-1, 1, 1))
             # m.anchors /= self.reshape(m.stride, (-1, 1, 1))
-            ops.assign(m.anchors, ops.div(m.anchors, ops.reshape(m.stride, (-1, 1, 1))))
-            # m.anchors = ms.Parameter(
-            #     Tensor(m.anchors_, ms.float32),
-            #     requires_grad=False
-            # )
-            # m.anchor_grid = ms.Parameter(
-            #     Tensor(m.anchor_grid_, ms.float32),
-            #     requires_grad=False
-            # )  # shape(nl,1,na,1,1,2)
+            # ops.assign(m.anchors, ops.div(m.anchors, ops.reshape(m.stride, (-1, 1, 1))))
+            # _anchors = np.array(m.raw_anchors, np.float32).reshape((m.nl, -1, 2))
+            m.anchors = ms.Parameter(
+                Tensor(m.anchors_, ms.float32),
+                requires_grad=False
+            )
+            # _anchor_grid = np.array(m.raw_anchors, np.float32).reshape((self.nl, 1, -1, 1, 1, 2))
+            m.anchor_grid = ms.Parameter(
+                Tensor(m.anchor_grid_, ms.float32),
+                requires_grad=False
+            )  # shape(nl,1,na,1,1,2)
             # m.stride = Tensor(m.stride, ms.int32)
             self.stride = m.stride
             self.stride_np = np.array(self.yaml['stride'])
@@ -203,16 +205,28 @@ class Model(nn.Cell):
         # https://arxiv.org/abs/1708.02002 section 3.3
         # cf = torch.bincount(torch.tensor(np.concatenate(dataset.labels, 0)[:, 0]).long(), minlength=nc) + 1.
         m = self.model[-1]  # Detect() module
-        for mi, s in zip(m.m, m.stride):  # from
+        for mi, s in zip(m.m, self.stride_np):  # from
+            ### Original code
             # s = s.asnumpy()
             # b = mi.bias.view(m.na, -1).asnumpy()  # conv.bias(255) to (3,85)
-            b = self.reshape(mi.bias, (m.na, -1)) #.asnumpy()     # conv.bias(255) to (3,85)
             # b[:, 4] += math.log(8 / (640 / s) ** 2)  # obj (8 objects per 640 image)
             # b[:, 5:] += math.log(0.6 / (m.nc - 0.99999)) if cf is None else np.log(cf / cf.sum())  # cls
             # mi.bias = ops.assign(mi.bias, Tensor(b, ms.float32).view(-1))
-            b[:, 4] += self.log(8 / (640 / s) ** 2)
-            b[:, 5:] += self.log(0.6 / (m.nc - 0.99999)) if cf is None else ms.Tensor(np.log(cf / cf.sum()), ms.float32)  # cls
-            ops.assign(mi.bias, self.reshape(b, (-1, )))
+            ###
+
+            # s = s.asnumpy()
+            # b = mi.bias.view(m.na, -1).asnumpy()  # conv.bias(255) to (3,85)
+            # b = self.reshape(mi.bias, (m.na, -1)) #.asnumpy()     # conv.bias(255) to (3,85)
+            b = mi.bias.asnumpy()
+            b = np.reshape(b, (m.na, -1))
+            b[:, 4] += math.log(8 / (640 / s) ** 2)  # obj (8 objects per 640 image)
+            b[:, 5:] += math.log(0.6 / (m.nc - 0.99999)) if cf is None else np.log(cf / cf.sum())  # cls
+            b = np.reshape(b, (-1, ))
+            ops.assign(mi.bias, Tensor(b, ms.float32))
+            # mi.bias = ops.assign(mi.bias, Tensor(b, ms.float32).view(-1))
+            # b[:, 4] += self.log(8 / (640 / s) ** 2)
+            # b[:, 5:] += self.log(0.6 / (m.nc - 0.99999)) if cf is None else ms.Tensor(np.log(cf / cf.sum()), ms.float32)  # cls
+            # ops.assign(mi.bias, self.reshape(b, (-1, )))
 
 
 def main():

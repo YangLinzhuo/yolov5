@@ -31,7 +31,6 @@ from mindspore.context import ParallelMode
 from pycocotools.coco import COCO
 
 from config.args import get_args_test
-from src.coco_visual import CocoVisualUtil
 from src.dataset import create_dataloader
 from src.general import LOGGER, AllReduce, empty
 from src.general import COCOEval as COCOeval
@@ -535,6 +534,7 @@ class TestManager:
         return coco_result
 
     def visualize_coco(self, anno_json, pred_json_path):
+        from src.coco_visual import CocoVisualUtil
         LOGGER.info("Start visualization result.")
         dataset_cfg = self.dataset_cfg
         dataset_coco = COCO(anno_json)
