@@ -22,19 +22,19 @@ import numpy as np
 import mindspore as ms
 from mindspore import Tensor, context, export
 
-from config.args import get_args_export
+from config.args_dataclass import get_args_export, ExportConfig
 from src.network.yolo import Model
 
 
-def run_export(opt):
+def run_export(opt: ExportConfig):
     """
     Export the MINDIR file
     Returns:None
     """
 
     # set context
-    context.set_context(mode=context.GRAPH_MODE, device_target=opt.device_target)
-    if opt.device_target == "Ascend":
+    context.set_context(mode=context.GRAPH_MODE, device_target=opt.device)
+    if opt.device == "Ascend":
         device_id = int(os.getenv('DEVICE_ID', '0'))
         context.set_context(device_id=device_id)
     else:
@@ -58,14 +58,13 @@ def run_export(opt):
     net.set_train(False)
 
     # export
-    input_arr = Tensor(np.ones([opt.export_batch_size, 3, opt.img_size, opt.img_size]), ms.float32)
-    file_name = os.path.basename(opt.cfg)[:-5] # delete ".yaml"
+    input_arr = Tensor(np.ones([opt.batch_size, 3, opt.img_size, opt.img_size]), ms.float32)
+    file_name = os.path.basename(opt.cfg)[:-5]  # delete ".yaml" suffix
     export(net, input_arr, file_name=file_name, file_format=opt.file_format)
 
 
 def main():
-    parser = get_args_export()
-    opt = parser.parse_args()
+    opt = get_args_export()
     run_export(opt)
 
 
