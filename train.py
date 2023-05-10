@@ -33,7 +33,7 @@ from mindspore.context import ParallelMode
 from mindspore.ops import functional as F
 from mindspore.profiler.profiling import Profiler
 
-from config.args import get_args_train
+from config.args_dataclass import get_args_train, TrainConfig
 from val import EvalManager
 from src.boost import build_train_network
 from src.dataset import create_dataloader
@@ -183,7 +183,7 @@ class CheckpointQueue:
 
 
 class TrainManager:
-    def __init__(self, hyp, opt):
+    def __init__(self, hyp, opt: TrainConfig):
         self.hyp = hyp
         self.opt = opt
 
@@ -502,8 +502,7 @@ class TrainManager:
 
 
 def main():
-    parser = get_args_train()
-    opt = parser.parse_args()
+    opt = get_args_train()
     opt.save_json |= opt.data.endswith('coco.yaml')
     opt.data, opt.cfg, opt.hyp = check_file(opt.data), check_file(opt.cfg), check_file(opt.hyp)  # check files
     assert not empty(opt.cfg) or not empty(opt.weights), 'either --cfg or --weights must be specified'

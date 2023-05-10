@@ -31,7 +31,7 @@ from mindspore.communication.management import get_group_size, get_rank, init
 from mindspore.context import ParallelMode
 from pycocotools.coco import COCO
 
-from config.args import get_args_eval
+from config.args_dataclass import get_args_eval, EvalConfig
 from src.coco_visual import CocoVisualUtil
 from src.dataset import create_dataloader
 from src.general import LOGGER, AllReduce, empty
@@ -188,7 +188,7 @@ def load_checkpoint_to_yolo(model, ckpt_path):
 
 
 class EvalManager:
-    def __init__(self, opt, half_precision=False, compute_loss=None):
+    def __init__(self, opt: EvalConfig, half_precision=False, compute_loss=None):
         self.opt = opt
         self.half_precision = half_precision
         self.is_coco = False
@@ -403,7 +403,7 @@ class EvalManager:
         self.training = model is not None
         if model is None:  # called by train.py
             # Load model
-            # Hyperparameters
+            # Hyper-parameters
             with open(self.opt.hyp) as f:
                 self.hyper_params = yaml.load(f, Loader=yaml.SafeLoader)  # load hyps
             model = Model(self.opt.cfg, ch=3, nc=self.dataset_cfg['nc'], anchors=self.hyper_params.get('anchors'),
@@ -645,8 +645,7 @@ class EvalManager:
 
 
 def main():
-    parser = get_args_eval()
-    opt = parser.parse_args()
+    opt = get_args_eval()
     opt.save_json |= opt.data.endswith('coco.yaml')
     opt.data, opt.cfg, opt.hyp = check_file(opt.data), check_file(opt.cfg), check_file(opt.hyp)  # check files
     print(opt)
@@ -654,7 +653,7 @@ def main():
     ms_mode = ms.GRAPH_MODE if opt.ms_mode == "graph" else ms.PYNATIVE_MODE
     ms.set_context(mode=ms.PYNATIVE_MODE, device_target=opt.device_target)
     context.set_context(mode=ms_mode, device_target=opt.device_target)
-    if opt.device_target == "Ascend":
+    if opt.device_target.lower() == "ascend":
         device_id = int(os.getenv('DEVICE_ID', '0'))
         context.set_context(device_id=device_id)
     rank, rank_size, parallel_mode = 0, 1, ParallelMode.STAND_ALONE

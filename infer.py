@@ -22,7 +22,7 @@ import yaml
 import numpy as np
 from pycocotools.coco import COCO
 
-from config.args import get_args_infer
+from config.args_dataclass import get_args_infer, InferConfig
 from deploy.infer_engine.mindx import MindXModel
 from src.dataset import create_dataloader
 from src.general import COCOEval as COCOeval
@@ -58,7 +58,7 @@ class Detect:
         return np.concatenate(z, 1), outs
 
 
-def infer(opt):
+def infer(opt: InferConfig):
     # Create Network
     network = MindXModel(opt.om)
     with open(opt.cfg) as f:
@@ -160,8 +160,7 @@ def infer(opt):
 
 
 def main():
-    parser = get_args_infer()
-    opt = parser.parse_args()
+    opt = get_args_infer()
     infer(opt)
 
 

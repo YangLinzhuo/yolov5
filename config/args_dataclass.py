@@ -21,7 +21,7 @@ def meta(help_msg: Optional[str] = None, choices: Optional[List[Any]] = None,
 @dataclass
 class BasicConfig(Config):
     ms_mode: str = data_field(default="graph", metadata=meta(choices=["graph", "pynative"]))
-    device: str = data_field(
+    device_target: str = data_field(
         default="ascend",
         metadata=meta(help_msg="device target, Ascend/GPU/CPU", choices=["cpu", "gpu", "ascend"])
     )
@@ -32,6 +32,8 @@ class BasicConfig(Config):
         metadata=meta(help_msg="hyper-parameters path")
     )
     batch_size: int = data_field(default=32, metadata=meta(help_msg="batch size for each device"))
+    rank: int = data_field(default=0, metadata=meta(help_msg="Rank of device"))
+    rank_size: int = data_field(default=1, metadata=meta(help_msg="Rank size"))
 
 
 @dataclass
@@ -163,6 +165,7 @@ class TrainConfig(EvalConfig):
     project: str = data_field(default="runs/train", metadata=meta(help_msg="Save to project/name"))
     entity: Optional[str] = data_field(default=None, metadata=meta(help_msg="W&B entity"))
     name: str = data_field(default="exp", metadata=meta(help_msg="Save to project/name"))
+    save_dir: str = data_field(default='', metadata=meta(help_msg="Folder to save training related data"))
     quad: bool = data_field(default=False, metadata=meta(help_msg="Quad dataloader"))
     linear_lr: bool = data_field(default=True, metadata=meta(help_msg="Linear LR"))
     result_view: bool = data_field(default=False, metadata=meta(help_msg="View the eval result"))
@@ -204,6 +207,7 @@ class TrainConfig(EvalConfig):
         default="/cache/data",
         metadata=meta(help_msg="ModelArts: obs path to dataset folder")
     )
+    total_batch_size: int = data_field(default=32, metadata=meta(help_msg="Sum of batch size on all devices"))
 
 
 @dataclass
@@ -231,6 +235,18 @@ def get_args(data_class):
 
 def get_args_export() -> ExportConfig:
     return get_args(ExportConfig)
+
+
+def get_args_infer() -> InferConfig:
+    return get_args(InferConfig)
+
+
+def get_args_eval() -> EvalConfig:
+    return get_args(EvalConfig)
+
+
+def get_args_train() -> TrainConfig:
+    return get_args(TrainConfig)
 
 
 def main():

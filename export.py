@@ -33,8 +33,8 @@ def run_export(opt: ExportConfig):
     """
 
     # set context
-    context.set_context(mode=context.GRAPH_MODE, device_target=opt.device)
-    if opt.device == "Ascend":
+    context.set_context(mode=context.GRAPH_MODE, device_target=opt.device_target)
+    if opt.device_target == "Ascend":
         device_id = int(os.getenv('DEVICE_ID', '0'))
         context.set_context(device_id=device_id)
     else:
