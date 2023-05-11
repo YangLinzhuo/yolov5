@@ -23,7 +23,10 @@ class BasicConfig(Config):
     ms_mode: str = data_field(default="graph", metadata=meta(choices=["graph", "pynative"]))
     device_target: str = data_field(
         default="ascend",
-        metadata=meta(help_msg="device target, Ascend/GPU/CPU", choices=["cpu", "gpu", "ascend"])
+        metadata=meta(
+            help_msg="device target, Ascend/GPU/CPU",
+            choices=["cpu", "CPU", "gpu", "GPU", "ascend", "Ascend"]
+        )
     )
     cfg: str = data_field(default="config/network/yolov5s.yaml", metadata=meta(help_msg="model.yaml path"))
     data: str = data_field(default="config/data/coco.yaml", metadata=meta(help_msg="data.yaml path"))
