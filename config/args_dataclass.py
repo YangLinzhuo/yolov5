@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from dataclasses import field as data_field
 from typing import List, Optional, Any, Dict
-from config.base import MsArgumentParser, Config
+from third_party.config.base import MsArgumentParser, Config
 
 
 def meta(help_msg: Optional[str] = None, choices: Optional[List[Any]] = None,
@@ -22,10 +22,10 @@ def meta(help_msg: Optional[str] = None, choices: Optional[List[Any]] = None,
 class BasicConfig(Config):
     ms_mode: str = data_field(default="graph", metadata=meta(choices=["graph", "pynative"]))
     device_target: str = data_field(
-        default="ascend",
+        default="Ascend",
         metadata=meta(
             help_msg="device target, Ascend/GPU/CPU",
-            choices=["cpu", "CPU", "gpu", "GPU", "ascend", "Ascend"]
+            choices=["CPU", "GPU", "Ascend"]
         )
     )
     cfg: str = data_field(default="config/network/yolov5s.yaml", metadata=meta(help_msg="model.yaml path"))
@@ -74,7 +74,9 @@ class EvalConfig(BasicConfig, InferBasicConfig):
         default=False,
         metadata=meta(help_msg="save a cocoapi-compatible JSON results file")
     )
-    project: str = data_field(default="./run_test", metadata=meta(help_msg="save to project/name"))
+    project: str = data_field(default="runs/eval", metadata=meta(help_msg="save to project/name"))
+    name: str = data_field(default="exp", metadata=meta(help_msg="Save to project/name"))
+    save_dir: str = data_field(default='', metadata=meta(help_msg="Folder to save evaluation related data"))
     exist_ok: bool = data_field(
         default=False,
         metadata=meta(help_msg="existing project/name ok, do not increment")
@@ -140,7 +142,7 @@ class TrainConfig(EvalConfig):
     max_ckpt_num: int = data_field(
         default=40,
         metadata=meta(help_msg="The maximum number of save checkpoint, delete previous checkpoints if "
-                                    "the number of saved checkpoints are larger than this value")
+                               "the number of saved checkpoints are larger than this value")
     )
     resume: bool = data_field(default=False, metadata=meta(help_msg="Resume specified checkpoint training"))
     nosave: bool = data_field(default=False, metadata=meta(help_msg="Only save final checkpoint"))

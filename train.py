@@ -205,13 +205,14 @@ class TrainManager:
         hyp = self.hyp
         self._modelarts_sync(opt.data_url, opt.data_dir)
 
-        self.data_cfg = self.get_data_cfg()
-        num_cls = self.data_cfg['nc']
+        # self.data_cfg = self.get_data_cfg()
+        # num_cls = self.data_cfg['nc']
 
         # Directories
         os.makedirs(self.weight_dir, exist_ok=True)
         # Save run settings
         self.dump_cfg()
+        return
         self._modelarts_sync(opt.save_dir, opt.train_url)
 
         # Model
@@ -284,9 +285,9 @@ class TrainManager:
                             f"epoch time {step_time * 1000:.2f} ms, "
                             f"step time {step_time * 1000 / data_size:.2f} ms, "
                             f"loss: {loss.asnumpy() / opt.batch_size:.4f}, "
-                            f"lbox loss: {train_step.network.lbox_loss.asnumpy():.4f}, "
-                            f"lobj loss: {train_step.network.lobj_loss.asnumpy():.4f}, "
-                            f"lcls loss: {train_step.network.lcls_loss.asnumpy():.4f}.")
+                            f"box loss: {train_step.network.lbox_loss.asnumpy():.4f}, "
+                            f"obj loss: {train_step.network.lobj_loss.asnumpy():.4f}, "
+                            f"cls loss: {train_step.network.lcls_loss.asnumpy():.4f}.")
                 self.summarize_loss(cur_epoch, loss, steps_per_epoch, summary_record, train_step)
                 if opt.profiler and (cur_epoch == run_profiler_epoch):
                     break

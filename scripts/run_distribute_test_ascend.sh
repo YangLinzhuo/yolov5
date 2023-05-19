@@ -56,6 +56,7 @@ mkdir "${eval_exp}"
 start_device_id="$DEVICE_ID"
 cur_dir=$(pwd)
 build_third_party_files "$cur_dir" "../third_party"
+copy_files_to "$eval_exp"
 for((i=0; i < DEVICE_NUM; i++))
 do
     start=$((i * avg))
@@ -63,9 +64,9 @@ do
     cmdopt="${start}-${end}"
     export DEVICE_ID=$((i + start_device_id))
     export RANK_ID=$i
-    sub_dir="${eval_exp}/eval_parallel${i}"
-    copy_files_to "$sub_dir"
-    cd "${sub_dir}" || exit
+#    sub_dir="${eval_exp}/eval_parallel${i}"
+#    copy_files_to "$sub_dir"
+#    cd "${sub_dir}" || exit
     echo "start testing for rank $RANK_ID, device $DEVICE_ID"
     env > env.log
     taskset -c $cmdopt python val.py \
@@ -79,7 +80,8 @@ do
         --conf=0.001 \
         --iou_thres=0.65 \
         --rect=False \
-        --project="${eval_exp}/eval_results" \
+        --project="result" \
+        --name="rank${i}" \
         --batch_size=32 > log.txt 2>&1 &
     cd "${cur_dir}" || exit
 done

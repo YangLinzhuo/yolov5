@@ -51,6 +51,7 @@ mkdir "${train_exp}"
 start_device_id="$DEVICE_ID"
 cur_dir=$(pwd)
 build_third_party_files "$cur_dir" "../third_party"
+copy_files_to "$train_exp"
 for((i=0; i < DEVICE_NUM; i++))
 do
     start=$((i * avg))
@@ -59,9 +60,9 @@ do
 
     export DEVICE_ID=$((i + start_device_id))
     export RANK_ID=$((i + $((SERVER_ID * DEVICE_NUM))))
-    sub_dir="${train_exp}/train_parallel${i}"
-    copy_files_to "$sub_dir"
-    cd "${sub_dir}" || exit
+#    sub_dir="${train_exp}/train_parallel${i}"
+#    copy_files_to "$sub_dir"
+#    cd "${sub_dir}" || exit
     echo "start training for rank $RANK_ID, device $DEVICE_ID"
     env > env.log
 
@@ -81,6 +82,7 @@ do
         --iou_thres=0.65 \
         --run_eval=True \
         --eval_epoch_interval=10 \
-        --project="${train_exp}/eval_results" > log.txt 2>&1 &
+        --project="result" \
+        --name="rank{$i}" > log.txt 2>&1 &
     cd "${cur_dir}" || exit
 done
