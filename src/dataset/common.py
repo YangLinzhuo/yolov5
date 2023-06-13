@@ -144,7 +144,9 @@ def verify_image_label(args: Tuple[str, str, str]) -> VerifiedImageInfo:
                     classes = np.array([x[0] for x in lb_lst], dtype=np.float32)
                     segments = [np.array(x[1:], dtype=np.float32).reshape(-1, 2) for x in lb_lst]  # (cls, xy1...)
                     lb = np.concatenate((classes.reshape(-1, 1), segments2boxes(segments)), 1)  # (cls, xywh)
-                lb = np.array(lb, dtype=np.float32)
+                    lb = np.array(lb, dtype=np.float32)
+                else:
+                    lb = np.array(lb_lst, dtype=np.float32)
             nl = len(lb)
             if nl:
                 assert lb.shape[1] == 5, f'labels require 5 columns, {lb.shape[1]} columns detected'

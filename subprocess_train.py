@@ -5,7 +5,7 @@ import yaml
 
 from src.config.args import get_args_train, TrainConfig
 from src.config.data import DatasetConfig
-from src.dataset.cache import Cache
+from src.dataset.dataset import Dataset
 from src.general import check_file, empty, LOGGER
 
 
@@ -66,9 +66,7 @@ def train():
 
     # Load Cache and Images
     dataset_cfg = DatasetConfig(opt.data)
-    dataset_cache = Cache(dataset_cfg.train)
-    print(len(dataset_cache.img_files))
-    print(len(dataset_cache.label_files))
+    dataset = Dataset(dataset_cfg.train)
 
     for i in range(device_num):
         opt_copy = deepcopy(opt)

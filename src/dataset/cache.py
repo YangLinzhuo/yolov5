@@ -125,4 +125,4 @@ class Cache:
 
     def get_cache_result(self) -> CacheResult:
         # found, missing, empty, corrupt, total
-        return self.cache['result']
+        return CacheResult(*self.cache['results'])

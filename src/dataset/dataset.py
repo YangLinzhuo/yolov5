@@ -71,6 +71,8 @@ class Dataset:
         self.filter_images(min_items)
         self.create_indices(batch_size)
         self.update_labels(single_cls)
+        self.rectangular_training(rect, img_size, stride, pad)
+        self.load_images_to_cache(cache_images)
 
 
     def filter_images(self, min_items: int = 0):
