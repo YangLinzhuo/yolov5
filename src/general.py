@@ -21,14 +21,10 @@ import os
 import re
 import stat
 import threading
-import time
 from pathlib import Path
 import pkg_resources as pkg
 
 import numpy as np
-import mindspore as ms
-import mindspore.nn as nn
-from mindspore import ops
 
 from src.logging import get_logger, set_logger
 from src.utils import emojis
@@ -274,38 +270,6 @@ def labels_to_class_weights(labels, nc=80):
     return weights
 
 
-_true = ms.Tensor(True, ms.bool_)
-
-
-def all_finite_cpu(inputs):
-    return _true
-
-
-class AllReduce(nn.Cell):
-    def __init__(self):
-        super(AllReduce, self).__init__()
-        self.all_reduce = ops.AllReduce(op=ops.ReduceOp.SUM)
-
-    def construct(self, x):
-        return self.all_reduce(x)
-
-
-class Synchronize:
-    def __init__(self, rank_size):
-        self.all_reduce = AllReduce()
-        self.rank_size = rank_size
-
-    def __call__(self):
-        sync = ms.Tensor(np.array([1]).astype(np.int32))
-        sync = self.all_reduce(sync)  # For synchronization
-        sync = sync.asnumpy()[0]
-        if sync != self.rank_size:
-            raise ValueError(
-                f"Sync value {sync} is not equal to number of device {self.rank_size}. "
-                f"There might be wrong with devices."
-            )
-
-
 def methods(instance):
     # Get class/instance methods
     return [f for f in dir(instance) if callable(getattr(instance, f)) and not f.startswith('__')]
@@ -527,32 +491,3 @@ class COCOEval(COCOeval):
                 self.category_stats_strs.append(category_stats_str)
 
 
-class SynchronizeManager:
-    def __init__(self, rank, rank_size, distributed, project_dir):
-        self.rank = rank
-        self.rank_size = rank_size
-        self.distributed = distributed  # whether distributed or not
-        self.sync = Synchronize(rank_size) if (distributed and rank_size > 1) else None
-        self.sync_file = os.path.join(project_dir, 'sync_file.temp')
-
-    def __enter__(self):
-        if self.distributed:
-            if self.rank == 0:
-                LOGGER.info(f"Create sync file {self.sync_file}")
-                os.mknod(self.sync_file)
-            if self.sync is not None:
-                self.sync()
-        return self.sync_file
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        if not self.distributed:
-            return
-        if self.rank == 0:
-            if os.path.exists(self.sync_file):
-                LOGGER.info(f"Delete sync file {self.sync_file}")
-                os.remove(self.sync_file)
-        else:
-            LOGGER.info(f"Waiting for rank [0] device...")
-            while os.path.exists(self.sync_file):
-                time.sleep(1)
-            LOGGER.info(f"Rank [{self.rank}] continue executing.")

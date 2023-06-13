@@ -34,9 +34,10 @@ from pycocotools.coco import COCO
 from config.args import get_args_eval
 from src.coco_visual import CocoVisualUtil
 from src.dataset import create_dataloader
-from src.general import LOGGER, AllReduce, empty
+from src.general import LOGGER, empty
+from src.mindspore.general import AllReduce, Synchronize, SynchronizeManager
 from src.general import COCOEval as COCOeval
-from src.general import (Synchronize, SynchronizeManager, box_iou, check_file,
+from src.general import (box_iou, check_file,
                          check_img_size, coco80_to_coco91_class, colorstr,
                          increment_path, xywh2xyxy, xyxy2xywh, WRITE_FLAGS, FILE_MODE)
 from src.metrics import (ConfusionMatrix, ap_per_class, non_max_suppression, scale_coords)
