@@ -32,8 +32,6 @@
 # This file is modified from
 #  https://github.com/huggingface/transformers/blob/main/src/transformers/hf_argparser.py
 
-from __future__ import annotations
-
 from inspect import isclass
 from enum import Enum
 import dataclasses
@@ -50,7 +48,7 @@ class BaseConfig:
 DataClassType = Type[BaseConfig]
 
 
-def str2bool(v: bool | str):
+def str2bool(v: Union[str, bool]):
     if isinstance(v, bool):
         return v
     if v.lower() in ("yes", "true", "t", "y", "1"):

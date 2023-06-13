@@ -18,11 +18,20 @@ import hashlib
 import os
 from collections import namedtuple
 from pathlib import Path
+from typing import Tuple, List, Optional
 
 import numpy as np
 from PIL import ExifTags, Image, ImageOps
 
 from src.general import segments2boxes
+
+
+def get_os_cpu_count() -> int:
+    os_cpu_count = os.cpu_count()
+    if os_cpu_count is None:
+        return 1
+    return os_cpu_count
+
 
 # Parameters
 HELP_URL = 'See https://github.com/ultralytics/yolov5/wiki/Train-Custom-Data'
@@ -30,11 +39,11 @@ IMG_FORMATS = 'bmp', 'dng', 'jpeg', 'jpg', 'mpo', 'png', 'tif', 'tiff', 'webp', 
 VID_FORMATS = 'asf', 'avi', 'gif', 'm4v', 'mkv', 'mov', 'mp4', 'mpeg', 'mpg', 'ts', 'wmv'  # include video suffixes
 PIN_MEMORY = str(os.getenv('PIN_MEMORY', "True")).lower() == 'true'  # global pin_memory for dataloaders
 TQDM_BAR_FORMAT = '{l_bar}{bar:10}{r_bar}'  # tqdm bar format
-NUM_THREADS = min(8, max(1, os.cpu_count() - 1))  # number of YOLOv5 multiprocessing threads
-IMG_TUPLE = namedtuple('Image', ['img', 'labels', 'img_path', 'shapes'])
+NUM_THREADS = min(8, max(1, get_os_cpu_count() - 1))  # number of YOLOv5 multiprocessing threads
+IMG_TUPLE = namedtuple('IMG_TUPLE', ['img', 'labels', 'img_path', 'shapes'])
 
 
-def get_hash(paths):
+def get_hash(paths: List[str]) -> str:
     # Returns a single hash value of a list of paths (files or dirs)
     size = sum(os.path.getsize(p) for p in paths if os.path.exists(p))  # sizes
     h = hashlib.md5(str(size).encode())  # hash sizes
@@ -42,13 +51,13 @@ def get_hash(paths):
     return h.hexdigest()  # return hash
 
 
-def img2label_paths(img_paths):
+def img2label_paths(img_paths: List[str]) -> List[str]:
     # Define label paths as a function of image paths
     sa, sb = os.sep + 'images' + os.sep, os.sep + 'labels' + os.sep  # /images/, /labels/ substrings
     return ['txt'.join(x.replace(sa, sb, 1).rsplit(x.split('.')[-1], 1)) for x in img_paths]
 
 
-def load_images_and_labels(path, prefix=''):
+def load_images_and_labels(path, prefix: str = '') -> Tuple[List[str], List[str]]:
     try:
         f = []  # image files
         for p in path if isinstance(path, list) else [path]:
@@ -57,9 +66,9 @@ def load_images_and_labels(path, prefix=''):
                 f += glob.glob(str(p / '**' / '*.*'), recursive=True)
             elif p.is_file():  # file
                 with open(p) as t:
-                    t = t.read().strip().splitlines()
+                    lines = t.read().strip().splitlines()
                     parent = str(p.parent) + os.sep
-                    f += [x.replace('./', parent, 1) if x.startswith('./') else x for x in t]  # to global path
+                    f += [x.replace('./', parent, 1) if x.startswith('./') else x for x in lines]  # to global path
             else:
                 raise FileNotFoundError(f'{prefix}{p} does not exist')
         img_files = sorted(x.replace('/', os.sep) for x in f if x.split('.')[-1].lower() in IMG_FORMATS)
@@ -79,11 +88,14 @@ def get_orientation_key():
     return None
 
 
-def exif_size(img):
+ImgShape = Tuple[int, int]
+
+
+def exif_size(img: Image.Image) -> ImgShape:
     # Returns exif-corrected PIL size
-    s = img.size  # (width, height)
+    s: ImgShape = img.size  # (width, height)
     try:
-        rotation = dict(img.getexif().items())[get_orientation_key()]
+        rotation = img.getexif()[get_orientation_key()]
         if rotation == 6:  # rotation 270
             s = (s[1], s[0])
         elif rotation == 8:  # rotation 90
@@ -94,7 +106,15 @@ def exif_size(img):
     return s
 
 
-def verify_image_label(args):
+# img_file, label, shape, segments, n_missing, n_found, n_empty, n_corrupt, msg
+VerifiedImageInfo = Tuple[Optional[str],
+                          Optional[np.ndarray],
+                          Optional[ImgShape],
+                          Optional[List[np.ndarray]],
+                          int, int, int, int, str]
+
+
+def verify_image_label(args: Tuple[str, str, str]) -> VerifiedImageInfo:
     # Verify one image-label pair
     img_file, lb_file, prefix = args
     nm, nf, ne, nc, msg, segments = 0, 0, 0, 0, '', []  # number (missing, found, empty, corrupt), message, segments
@@ -103,9 +123,12 @@ def verify_image_label(args):
         im = Image.open(img_file)
         im.verify()  # PIL verify
         shape = exif_size(im)  # image size
+        img_format = im.format
+        if img_format is None:
+            raise RuntimeError("The format of image file is None")
         assert (shape[0] > 9) & (shape[1] > 9), f'image size {shape} <10 pixels'
-        assert im.format.lower() in IMG_FORMATS, f'invalid image format {im.format}'
-        if im.format.lower() in ('jpg', 'jpeg'):
+        assert img_format.lower() in IMG_FORMATS, f'invalid image format {img_format}'
+        if img_format.lower() in ('jpg', 'jpeg'):
             with open(img_file, 'rb') as f:
                 f.seek(-2, 2)
                 if f.read() != b'\xff\xd9':  # corrupt JPEG
@@ -116,10 +139,10 @@ def verify_image_label(args):
         if os.path.isfile(lb_file):
             nf = 1  # label found
             with open(lb_file) as f:
-                lb = [x.split() for x in f.read().strip().splitlines() if len(x)]
-                if any(len(x) > 6 for x in lb):  # is segment
-                    classes = np.array([x[0] for x in lb], dtype=np.float32)
-                    segments = [np.array(x[1:], dtype=np.float32).reshape(-1, 2) for x in lb]  # (cls, xy1...)
+                lb_lst = [x.split() for x in f.read().strip().splitlines() if len(x)]
+                if any(len(x) > 6 for x in lb_lst):  # is segment
+                    classes = np.array([x[0] for x in lb_lst], dtype=np.float32)
+                    segments = [np.array(x[1:], dtype=np.float32).reshape(-1, 2) for x in lb_lst]  # (cls, xy1...)
                     lb = np.concatenate((classes.reshape(-1, 1), segments2boxes(segments)), 1)  # (cls, xywh)
                 lb = np.array(lb, dtype=np.float32)
             nl = len(lb)

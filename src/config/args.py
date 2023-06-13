@@ -13,19 +13,17 @@
 # limitations under the License.
 # ============================================================================
 
-from __future__ import annotations
-
 from dataclasses import dataclass
 from dataclasses import field as data_field
-from typing import Any
-from src.config.base import MsArgumentParser, BaseConfig
+from typing import Any, Optional, List, Dict
+from src.config.base import MsArgumentParser, BaseConfig, DataClassType
 
 
-def meta(help_msg: str | None = None, choices: list[Any] | None = None,
-         action: str | None = None):
+def meta(help_msg: Optional[str] = None, choices: Optional[List[Any]] = None,
+         action: Optional[str] = None):
     if help_msg is None and choices is None and action is None:
         return None
-    meta_data: dict[str, Any] = {}
+    meta_data: Dict[str, Any] = {}
     if help_msg is not None:
         meta_data["help"] = help_msg
     if choices is not None:
@@ -134,7 +132,7 @@ class TrainConfig(EvalConfig):
         default="O0",
         metadata=meta(help_msg="amp level", choices=["O0", "O1", "O2"])
     )
-    ms_loss_scaler: str | None = data_field(
+    ms_loss_scaler: Optional[str] = data_field(
         default=None,
         metadata=meta(help_msg="Train loss scaler", choices=["static", "dynamic", "None"])
     )
@@ -154,7 +152,7 @@ class TrainConfig(EvalConfig):
     weights: str = data_field(default='', metadata=meta(help_msg="Initial weights path"))
     ema_weight: str = data_field(default='', metadata=meta(help_msg="Initial ema weights path"))
     epochs: int = 300
-    img_size: list[int] = data_field(   # type: ignore
+    img_size: List[int] = data_field(   # type: ignore
         default_factory=lambda: [640, 640],
         metadata=meta(help_msg="[Train, Eval] image sizes")
     )
@@ -195,7 +193,7 @@ class TrainConfig(EvalConfig):
         metadata=meta(help_msg="Use SyncBatchNorm, only available in DDP mode")
     )
     project: str = data_field(default="runs/train", metadata=meta(help_msg="Save to project/name"))
-    entity: str | None = data_field(default=None, metadata=meta(help_msg="W&B entity"))
+    entity: Optional[str] = data_field(default=None, metadata=meta(help_msg="W&B entity"))
     name: str = data_field(default="exp", metadata=meta(help_msg="Save to project/name"))
     save_dir: str = data_field(default='', metadata=meta(help_msg="Folder to save training related data"))
     quad: bool = data_field(default=False, metadata=meta(help_msg="Quad dataloader"))
@@ -212,7 +210,7 @@ class TrainConfig(EvalConfig):
         default="latest",
         metadata=meta(help_msg="version of dataset artifact to be used")
     )
-    freeze: list[int] = data_field(
+    freeze: List[int] = data_field(
         default_factory=lambda: [0],
         metadata=meta(help_msg="Freeze layers: backbone of yolov5, first3=0 1 2")
     )
@@ -259,7 +257,7 @@ class ExportConfig(BasicConfig):
     weights: str = data_field(default="./EMA_yolov5s_300.ckpt", metadata=meta(help_msg="model.ckpt path"))
 
 
-def get_args(data_class):
+def get_args(data_class: DataClassType):
     parser = MsArgumentParser(data_class)
     args = parser.parse_args()
     return data_class(**vars(args))
