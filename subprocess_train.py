@@ -1,13 +1,13 @@
 from copy import deepcopy
 from multiprocessing import Process
 import os
+from pathlib import Path
 
 from src.config.args import get_args_train, TrainConfig
 from src.config.data import DatasetConfig
 from src.config.hyp import get_hyp, Hyp
 from src.dataset.dataset import Dataset
-from src.general import check_file, empty, LOGGER
-from src.train.manager import TrainManager
+from src.general import check_file, empty, LOGGER, increment_path
 
 
 def subprocess_train(hyp: Hyp, opt: TrainConfig, dataset_cfg: DatasetConfig, dataset: Dataset):
@@ -18,6 +18,29 @@ def subprocess_train(hyp: Hyp, opt: TrainConfig, dataset_cfg: DatasetConfig, dat
     print(os.environ["RANK_ID"])
 
     from mindspore.profiler.profiling import Profiler
+    from src.train.manager import TrainManager
+    from mindspore.communication.management import get_group_size, get_rank, init
+    from mindspore import context
+    from mindspore.context import ParallelMode
+
+    opt.save_dir = increment_path(Path(opt.project) / opt.name, exist_ok=opt.exist_ok | opt.evolve)  # increment run
+
+    ms_mode = context.GRAPH_MODE if opt.ms_mode == "graph" else context.PYNATIVE_MODE
+    context.set_context(mode=ms_mode, device_target=opt.device_target, save_graphs=False)
+    if opt.device_target == "Ascend":
+        device_id = int(os.getenv('DEVICE_ID', "0"))
+        context.set_context(device_id=device_id)
+    # Distribute Train
+    rank, rank_size, parallel_mode = 0, 1, ParallelMode.STAND_ALONE
+    if opt.distributed_train:
+        init()
+        rank, rank_size, parallel_mode = get_rank(), get_group_size(), ParallelMode.DATA_PARALLEL
+        context.set_auto_parallel_context(parallel_mode=parallel_mode, gradients_mean=True, device_num=rank_size,
+                                          all_reduce_fusion_config=[10, 70, 130, 190, 250, 310])
+
+    opt.rank, opt.rank_size = rank, rank_size
+    opt.total_batch_size = opt.batch_size * opt.rank_size
+
     # Train
     profiler = None
     if opt.profiler:

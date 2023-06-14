@@ -57,6 +57,7 @@ class Hyp:
     enable_clip_grad: bool = False
     bn_eps: float = 0.001
     bn_momentum: float = 0.03
+    label_smoothing: float = 0.0
 
 
 def get_hyp(hyp_path: str) -> Hyp:

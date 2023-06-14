@@ -52,7 +52,7 @@ def get_lr(opt, hyp, per_epoch_size, resume_epoch):
     # Scheduler https://arxiv.org/pdf/1812.01187.pdf
     # https://pytorch.org/docs/stable/_modules/torch/optim/lr_scheduler.html#OneCycleLR
     init_lr, warmup_bias_lr, warmup_epoch, lrf = \
-        hyp['lr0'], hyp['warmup_bias_lr'], hyp['warmup_epochs'], hyp['lrf']
+        hyp.lr0, hyp.warmup_bias_lr, hyp.warmup_epochs, hyp.lrf
     total_epoch, linear_lr = opt.epochs, opt.linear_lr
     if opt.optimizer == "sgd":
         with_momentum = True
@@ -74,7 +74,7 @@ def get_lr(opt, hyp, per_epoch_size, resume_epoch):
     momentum_pg = []
     warmup_steps = max(round(warmup_epoch * per_epoch_size), 100)
     xi = [0, warmup_steps]
-    momentum_after_warmup = np.interp(warmup_steps, xi, [hyp['warmup_momentum'], hyp['momentum']])
+    momentum_after_warmup = np.interp(warmup_steps, xi, [hyp.warmup_momentum, hyp.momentum])
     for i in range(resume_epoch * per_epoch_size, total_epoch * per_epoch_size):
         cur_epoch = i // per_epoch_size
         _lr = init_lr * lf(cur_epoch)
@@ -83,7 +83,7 @@ def get_lr(opt, hyp, per_epoch_size, resume_epoch):
             lr_pg1.append(np.interp(i, xi, [0.0, _lr]))
             lr_pg2.append(np.interp(i, xi, [warmup_bias_lr, _lr]))
             if with_momentum:
-                momentum_pg.append(np.interp(i, xi, [hyp['warmup_momentum'], hyp['momentum']]))
+                momentum_pg.append(np.interp(i, xi, [hyp.warmup_momentum, hyp.momentum]))
         else:
             lr_pg0.append(_lr)
             lr_pg1.append(_lr)

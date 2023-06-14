@@ -281,25 +281,25 @@ class ComputeLoss(nn.Cell):
     def __init__(self, model, autobalance=False):
         super(ComputeLoss, self).__init__()
         self.sort_obj_iou = False
-
-        h = model.hyp  # hyperparameters
-        self.hyp_anchor_t = h["anchor_t"]
-        self.hyp_box = h['box']
-        self.hyp_obj = h['obj']
-        self.hyp_cls = h['cls']
+        from src.config.hyp import Hyp
+        h: Hyp = model.hyp  # hyperparameters
+        self.hyp_anchor_t = h.anchor_t
+        self.hyp_box = h.box
+        self.hyp_obj = h.obj
+        self.hyp_cls = h.cls
 
         # Class label smoothing https://arxiv.org/pdf/1902.04103.pdf eqn 3
-        self.cp, self.cn = smooth_bce(eps=h.get('label_smoothing', 0.0))  # positive, negative BCE targets
+        self.cp, self.cn = smooth_bce(eps=h.label_smoothing)  # positive, negative BCE targets
 
         # Focal loss
-        g = h['fl_gamma']  # focal loss gamma
+        g = h.fl_gamma  # focal loss gamma
         if g > 0:
-            bce_cls, bce_obj = FocalLoss(bce_pos_weight=Tensor([h['cls_pw']], ms.float32), gamma=g), \
-                               FocalLoss(bce_pos_weight=Tensor([h['obj_pw']], ms.float32), gamma=g)
+            bce_cls, bce_obj = FocalLoss(bce_pos_weight=Tensor([h.cls_pw], ms.float32), gamma=g), \
+                               FocalLoss(bce_pos_weight=Tensor([h.obj_pw], ms.float32), gamma=g)
         else:
             # Define criteria
-            bce_cls = BCEWithLogitsLoss(bce_pos_weight=Tensor(np.array([h['cls_pw']]), ms.float32))
-            bce_obj = BCEWithLogitsLoss(bce_pos_weight=Tensor(np.array([h['obj_pw']]), ms.float32))
+            bce_cls = BCEWithLogitsLoss(bce_pos_weight=Tensor(np.array([h.cls_pw]), ms.float32))
+            bce_obj = BCEWithLogitsLoss(bce_pos_weight=Tensor(np.array([h.obj_pw]), ms.float32))
 
         m = model.model[-1]  # Detect() module
         _balance = {3: [4.0, 1.0, 0.4]}.get(m.nl, [4.0, 1.0, 0.25, 0.06, 0.02])  # P3-P7

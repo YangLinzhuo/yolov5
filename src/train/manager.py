@@ -170,7 +170,7 @@ class TrainManager:
         # train_epoch_size = 1 if opt.optimizer == "thor" else opt.epochs - resume_epoch
         train_epoch_size = 1 if opt.optimizer == "thor" else opt.epochs
         dataloader, dataset, per_epoch_size = self.get_dataset(model, train_epoch_size, mode="train")
-        mlc = np.concatenate(dataset.labels, 0)[:, 0].max()  # max label class
+        mlc = np.concatenate(dataset.dataset.labels, 0)[:, 0].max()  # max label class
         assert mlc < num_cls, 'Label class %g exceeds nc=%g in %s. Possible class labels are 0-%g' \
                               % (mlc, num_cls, opt.data, num_cls - 1)
 
@@ -249,7 +249,7 @@ class TrainManager:
         if self.opt.ms_strategy == "StaticShape":
             train_step = create_train_network(model, compute_loss, ema, optimizer,
                                               loss_scaler=loss_scaler, sens=self.opt.ms_grad_sens, opt=self.opt,
-                                              enable_clip_grad=self.hyp["enable_clip_grad"],
+                                              enable_clip_grad=self.hyp.enable_clip_grad,
                                               gs=gs, imgsz=imgsz)
         else:
             raise NotImplementedError
@@ -279,7 +279,7 @@ class TrainManager:
         model.nc = num_cls  # attach number of classes to model
         model.hyp = hyp  # attach hyperparameters to model
         model.gr = 1.0  # iou loss ratio (obj_loss = 1.0 or iou)
-        model.class_weights = Tensor(labels_to_class_weights(dataset.labels, num_cls) * num_cls)  # attach class weights
+        model.class_weights = Tensor(labels_to_class_weights(dataset.dataset.labels, num_cls) * num_cls)  # attach class weights
         model.names = cls_names
         return model
 

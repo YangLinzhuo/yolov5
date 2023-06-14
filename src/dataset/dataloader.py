@@ -73,7 +73,7 @@ class LoadImagesAndLabels:
                 img, labels = mixup(img, labels, * self.load_mosaic(random.randint(0, dataset.n_images - 1)))
         else:
             # Load image
-            img, (h0, w0), (h, w) = load_image(self, index)
+            img, (h0, w0), (h, w) = load_image(self.dataset, index)
 
             # Letterbox
             # final letterboxed shape
@@ -262,15 +262,15 @@ def create_dataloader(dataset: Dataset,
         # Make sure only the first process in DDP process the dataset first, and the following others can use the cache
     cv2.setNumThreads(2)
     de.config.set_seed(1236517205 + opt.rank)
-    dataset = LoadImagesAndLabels(dataset, hyp=hyp, opt=opt, image_weights=image_weights)
+    __dataset = LoadImagesAndLabels(dataset, hyp=hyp, opt=opt, image_weights=image_weights)
     dataset_column_names = ["img", "label_out", "img_files", "shapes"]
     print(f"[INFO] Num parallel workers: [{num_parallel_workers}]", flush=True)
     if opt.rank_size > 1:
-        ds = de.GeneratorDataset(dataset, column_names=dataset_column_names,
+        ds = de.GeneratorDataset(__dataset, column_names=dataset_column_names,
                                  num_parallel_workers=num_parallel_workers, shuffle=shuffle,
                                  num_shards=opt.rank_size, shard_id=opt.rank)
     else:
-        ds = de.GeneratorDataset(dataset, column_names=dataset_column_names,
+        ds = de.GeneratorDataset(__dataset, column_names=dataset_column_names,
                                  num_parallel_workers=num_parallel_workers, shuffle=shuffle)
     print(f"[INFO] Batch size: {opt.batch_size}", flush=True)
     ds = ds.batch(opt.batch_size,
@@ -282,7 +282,7 @@ def create_dataloader(dataset: Dataset,
     else:
         ds = ds.repeat(opt.epochs)
 
-    per_epoch_size = int(len(dataset) / opt.batch_size / opt.rank) if drop_remainder else \
-        math.ceil(len(dataset) / opt.batch_size / opt.rank_size)
+    per_epoch_size = int(len(__dataset) / opt.batch_size / opt.rank_size) if drop_remainder else \
+        math.ceil(len(__dataset) / opt.batch_size / opt.rank_size)
 
-    return ds, dataset, per_epoch_size
+    return ds, __dataset, per_epoch_size
