@@ -34,6 +34,16 @@ def subprocess_train(hyp: Hyp, opt: TrainConfig, dataset_cfg: DatasetConfig, dat
         profiler.analyse()
 
 
+def judge_multi_train(processes):
+    exitcode = 0
+    for p in processes:
+        p.join()
+        if p.exitcode:
+            exitcode = p.exitcode
+        p.close()
+    return exitcode
+
+
 def train():
     opt = get_args_train()
     opt.save_json |= opt.data.endswith('coco.yaml')
@@ -71,7 +81,9 @@ def train():
         p = Process(target=subprocess_train, args=(hyp, opt_copy, dataset_cfg, dataset))
         p.start()
         subprocesses.append(p)
-
+    exitcode = judge_multi_train(subprocesses)
+    if exitcode:
+        raise RuntimeError("Distributed train failed!")
 
 def main():
     train()

@@ -156,7 +156,7 @@ class Dataset:
 
     def load_images_to_cache(self, cache_images: str = '', prefix: str = ''):
         # Cache images into RAM/disk for faster training
-        is_cache = True
+        is_cache = cache_images != ''
         if cache_images == 'ram' and not self.check_cache_ram(prefix=prefix):
             is_cache = False
         n_total = len(self.shapes)  # number of images
