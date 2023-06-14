@@ -36,7 +36,7 @@ from mindspore.profiler.profiling import Profiler
 from config.args import get_args_train
 from val import EvalManager
 from src.boost import build_train_network
-from src.dataset import create_dataloader
+from src.dataloader import create_dataloader
 from src.general import (check_file, check_img_size, colorstr, increment_path,
                          labels_to_class_weights, LOGGER, process_dataset_cfg, empty,
                          WRITE_FLAGS, FILE_MODE)
