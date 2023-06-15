@@ -164,17 +164,17 @@ class Dataset:
         self.npy_files = [Path(f).with_suffix('.npy') for f in self.img_files]
         if is_cache:
             b, gb = 0, 1 << 30  # bytes of cached images, bytes per gigabytes
-            self.im_hw0, self.im_hw = [None] * n_total, [None] * n_total
+            self.img_hw0, self.img_hw = [None] * n_total, [None] * n_total
             fcn = self.cache_images_to_disk if self.cache_images == 'disk' else self.load_image
             results = ThreadPool(NUM_THREADS).imap(fcn, range(n_total))
             pbar = tqdm(enumerate(results), total=n_total, bar_format=TQDM_BAR_FORMAT)
             for i, x in pbar:
-                if is_cache == 'disk':
+                if cache_images == 'disk':
                     b += self.npy_files[i].stat().st_size
                 else:  # 'ram'
-                    self.imgs[i], self.im_hw0[i], self.im_hw[i] = x  # im, hw_orig, hw_resized = load_image(self, i)
+                    self.imgs[i], self.img_hw0[i], self.img_hw[i] = x  # im, hw_orig, hw_resized = load_image(self, i)
                     b += self.imgs[i].nbytes
-                pbar.desc = f'{self.prefix}Caching images ({b / gb:.1f}GB {is_cache})'
+                pbar.desc = f'{self.prefix}Caching images ({b / gb:.1f}GB {cache_images})'
             pbar.close()
 
     def cache_images_to_disk(self, i):
@@ -198,7 +198,7 @@ class Dataset:
                 interp = cv2.INTER_LINEAR if (self.augment or r > 1) else cv2.INTER_AREA
                 img = cv2.resize(img, (math.ceil(w0 * r), math.ceil(h0 * r)), interpolation=interp)
             return img, (h0, w0), img.shape[:2]  # im, hw_original, hw_resized
-        return self.imgs[i], self.im_hw0[i], self.im_hw[i]  # im, hw_original, hw_resized
+        return self.imgs[i], self.img_hw0[i], self.img_hw[i]  # im, hw_original, hw_resized
 
     def get_item(self):
         pass

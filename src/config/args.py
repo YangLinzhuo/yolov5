@@ -40,6 +40,7 @@ class EnvironmentConfig(BaseConfig):
     device_id: int = data_field(default=0, metadata=meta(help_msg="The first device id to be used"))
     rank: int = data_field(default=0, metadata=meta(help_msg="Rank id of device in local group"))
     rank_size: int = data_field(default=1, metadata=meta(help_msg="Total rank size of all machines"))
+    rank_table_file: str = data_field(default='', metadata=meta(help_msg="Path to rank table file"))
 
 
 @dataclass

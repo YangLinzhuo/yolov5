@@ -73,7 +73,7 @@ class LoadImagesAndLabels:
                 img, labels = mixup(img, labels, * self.load_mosaic(random.randint(0, dataset.n_images - 1)))
         else:
             # Load image
-            img, (h0, w0), (h, w) = load_image(self.dataset, index)
+            img, (h0, w0), (h, w) = self.dataset.load_image(index) # load_image(self.dataset, index)
 
             # Letterbox
             # final letterboxed shape

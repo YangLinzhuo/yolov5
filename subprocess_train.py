@@ -12,8 +12,7 @@ from src.general import check_file, empty, LOGGER, increment_path
 
 def subprocess_train(hyp: Hyp, opt: TrainConfig, dataset_cfg: DatasetConfig, dataset: Dataset):
     # Export environment variable
-    os.environ["DEVICE_ID"] = str(opt.device_id)
-    os.environ["RANK_ID"] = str(opt.rank)
+    # os.environ["DEVICE_ID"] = str(opt.device_id)
     print(os.environ["DEVICE_ID"])
     print(os.environ["RANK_ID"])
 
@@ -92,13 +91,22 @@ def train():
     else:
         img_size = opt.img_size
     # Train dataset
-    dataset = Dataset(dataset_cfg.train, stride=32, img_size=img_size)
+    dataset = Dataset(dataset_cfg.train, stride=32, img_size=img_size, cache_images=opt.cache_images)
+    if opt.distributed_train:
+        os.environ["RANK_TABLE_FILE"] = os.path.realpath(opt.rank_table_file)
+        os.environ["RANK_SIZE"] = str(opt.rank)
 
+    from mindspore import context
+    ms_mode = context.GRAPH_MODE if opt.ms_mode == "graph" else context.PYNATIVE_MODE
+    # Must call set_context here, otherwise subprocess might terminate unexpectedly
+    context.set_context(mode=ms_mode, device_target=opt.device_target, save_graphs=False)
 
     for i in range(device_num):
         opt_copy = deepcopy(opt)
         opt_copy.rank = rank_id_start + i
         opt_copy.device_id = device_id + i
+        os.environ["RANK_ID"] = str(opt_copy.rank)
+        os.environ["DEVICE_ID"] = str(opt_copy.device_id)
         LOGGER.info(f"start training for rank {opt_copy.rank}, device {opt_copy.device_id}")
         # print(f"start training for rank {opt_copy.rank}, device {opt_copy.device_id}")
         p = Process(target=subprocess_train, args=(hyp, opt_copy, dataset_cfg, dataset))
