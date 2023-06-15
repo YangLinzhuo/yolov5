@@ -1,4 +1,4 @@
-from copy import deepcopy
+from copy import copy, deepcopy
 from multiprocessing import Process
 import os
 from pathlib import Path
@@ -102,6 +102,7 @@ def train():
     context.set_context(mode=ms_mode, device_target=opt.device_target, save_graphs=False)
 
     for i in range(device_num):
+        dataset_copy = deepcopy(dataset)
         opt_copy = deepcopy(opt)
         opt_copy.rank = rank_id_start + i
         opt_copy.device_id = device_id + i
@@ -109,7 +110,7 @@ def train():
         os.environ["DEVICE_ID"] = str(opt_copy.device_id)
         LOGGER.info(f"start training for rank {opt_copy.rank}, device {opt_copy.device_id}")
         # print(f"start training for rank {opt_copy.rank}, device {opt_copy.device_id}")
-        p = Process(target=subprocess_train, args=(hyp, opt_copy, dataset_cfg, dataset))
+        p = Process(target=subprocess_train, args=(hyp, opt_copy, dataset_cfg, dataset_copy))
         p.start()
         subprocesses.append(p)
     exitcode = judge_multi_train(subprocesses)

@@ -17,7 +17,8 @@ import math
 import random
 import psutil
 from pathlib import Path
-from typing import Dict, Any, List, Optional
+from copy import deepcopy
+from typing import Dict, Any, List, Optional, Tuple
 from multiprocessing.pool import ThreadPool
 
 import cv2
@@ -202,3 +203,14 @@ class Dataset:
 
     def get_item(self):
         pass
+
+    def __deepcopy__(self, memo):
+        cls = self.__class__
+        result = cls.__new__(cls)
+        memo[id(self)] = result
+        for k, v in self.__dict__.items():
+            if k != "imgs":
+                setattr(result, k, deepcopy(v, memo))
+            else:
+                setattr(result, "imgs", [arr[:] for arr in self.imgs])  # Create array view
+        return result
