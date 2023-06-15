@@ -33,7 +33,7 @@ from PIL import ExifTags, Image, ImageOps
 from tqdm import tqdm
 
 from src.augmentations import (Albumentations, augment_hsv, copy_paste,
-                               letterbox, load_image, load_samples, mixup,
+                               letterbox, load_samples, mixup,
                                pastein, random_perspective)
 from src.general import segments2boxes, xyn2xy, xywhn2xyxy, xyxy2xywhn, empty
 
@@ -169,6 +169,7 @@ class LoadImagesAndLabels:  # for training/testing
         self.mosaic_border = [-img_size // 2, -img_size // 2]
         self.stride = stride
         self.path = path
+        self.cache_images = cache_images
 
         self.albumentations = Albumentations(size=img_size) if augment else None
 
@@ -290,15 +291,18 @@ class LoadImagesAndLabels:  # for training/testing
         if cache_images:
             b, gb = 0, 1 << 30  # bytes of cached images, bytes per gigabytes
             self.im_hw0, self.im_hw = [None] * n, [None] * n
-            fcn = self.cache_images_to_disk if cache_images == 'disk' else self.load_image
+            # fcn = self.cache_images_to_disk if cache_images == 'disk' else self.load_image
+            fcn = self.cache_images_to_disk if cache_images == 'disk' else self.cache_images_to_ram
             results = ThreadPool(NUM_THREADS).imap(fcn, range(n))
             pbar = tqdm(enumerate(results), total=n, bar_format=TQDM_BAR_FORMAT, disable=rank > 0)
             for i, x in pbar:
                 if cache_images == 'disk':
                     b += self.npy_files[i].stat().st_size
                 else:  # 'ram'
-                    self.ims[i], self.im_hw0[i], self.im_hw[i] = x  # im, hw_orig, hw_resized = load_image(self, i)
-                    b += self.ims[i].nbytes
+                    # self.ims[i], self.im_hw0[i], self.im_hw[i] = x  # im, hw_orig, hw_resized = load_image(self, i)
+                    img, _, _ = x
+                    # b += self.ims[i].nbytes
+                    b += img.nbytes
                 pbar.desc = f'{prefix}Caching images ({b / gb:.1f}GB {cache_images})'
             pbar.close()
 
@@ -327,7 +331,8 @@ class LoadImagesAndLabels:  # for training/testing
                 img, labels = mixup(img, labels, * self.load_mosaic(random.randint(0, self.n - 1)))
         else:
             # Load image
-            img, (h0, w0), (h, w) = load_image(self, index)
+            # img, (h0, w0), (h, w) = load_image(self, index)
+            img, (h0, w0), (h, w) = self.load_image(index)
 
             # Letterbox
             shape = self.batch_shapes[self.batch[index]] if self.rect else self.img_size  # final letterboxed shape
@@ -500,20 +505,44 @@ class LoadImagesAndLabels:  # for training/testing
 
     def load_image(self, i):
         # Loads 1 image from dataset index 'i', returns (im, original hw, resized hw)
+        # im, f, fn = self.ims[i], self.img_files[i], self.npy_files[i]
+        # if im is None:  # not cached in RAM
+        #     if fn.exists():  # load npy
+        #         im = np.load(fn)
+        #     else:  # read image
+        #         im = cv2.imread(f)  # BGR
+        #         assert im is not None, f'Image Not Found {f}'
+        #     h0, w0 = im.shape[:2]  # orig hw
+        #     r = self.img_size / max(h0, w0)  # ratio
+        #     if r != 1:  # if sizes are not equal
+        #         interp = cv2.INTER_LINEAR if (self.augment or r > 1) else cv2.INTER_AREA
+        #         im = cv2.resize(im, (math.ceil(w0 * r), math.ceil(h0 * r)), interpolation=interp)
+        #     return im, (h0, w0), im.shape[:2]  # im, hw_original, hw_resized
+        # return self.ims[i], self.im_hw0[i], self.im_hw[i]  # im, hw_original, hw_resized
         im, f, fn = self.ims[i], self.img_files[i], self.npy_files[i]
-        if im is None:  # not cached in RAM
-            if fn.exists():  # load npy
-                im = np.load(fn)
-            else:  # read image
-                im = cv2.imread(f)  # BGR
-                assert im is not None, f'Image Not Found {f}'
-            h0, w0 = im.shape[:2]  # orig hw
-            r = self.img_size / max(h0, w0)  # ratio
-            if r != 1:  # if sizes are not equal
-                interp = cv2.INTER_LINEAR if (self.augment or r > 1) else cv2.INTER_AREA
-                im = cv2.resize(im, (math.ceil(w0 * r), math.ceil(h0 * r)), interpolation=interp)
-            return im, (h0, w0), im.shape[:2]  # im, hw_original, hw_resized
-        return self.ims[i], self.im_hw0[i], self.im_hw[i]  # im, hw_original, hw_resized
+        if im is None:  # not cached
+            img, img_hw0, img_hw = self.load_image_from_disk(i)
+            if self.cache_images == 'ram':
+                self.ims[i], self.im_hw0[i], self.im_hw[i] = img, img_hw0, img_hw
+        return self.ims[i], self.im_hw0[i], self.im_hw[i]   # im, hw_original, hw_resized
+
+    def load_image_from_disk(self, i):
+        f, fn = self.img_files[i], self.npy_files[i]
+        if fn.exists():  # load npy
+            im = np.load(fn)
+        else:  # read image
+            im = cv2.imread(f)  # BGR
+            assert im is not None, f'Image Not Found {f}'
+        h0, w0 = im.shape[:2]  # orig hw
+        r = self.img_size / max(h0, w0)  # ratio
+        if r != 1:  # if sizes are not equal
+            interp = cv2.INTER_LINEAR if (self.augment or r > 1) else cv2.INTER_AREA
+            im = cv2.resize(im, (math.ceil(w0 * r), math.ceil(h0 * r)), interpolation=interp)
+        return im, (h0, w0), im.shape[:2]  # im, hw_original, hw_resized
+
+    def cache_images_to_ram(self, i):
+        # pass    # Cache at first 1 epoch, so pass here
+        return self.load_image_from_disk(i)
 
     def cache_images_to_disk(self, i):
         # Saves an image as an *.npy file for faster loading

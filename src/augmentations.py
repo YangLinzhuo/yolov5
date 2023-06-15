@@ -57,22 +57,6 @@ class Albumentations:
         return im, labels
 
 
-def load_image(self, index):
-    # loads 1 image from dataset, returns img, original hw, resized hw
-    img = self.ims[index]
-    if img is None:  # not cached
-        path = self.img_files[index]
-        img = cv2.imread(path)  # BGR
-        assert img is not None, 'Image Not Found ' + path
-        h0, w0 = img.shape[:2]  # orig hw
-        r = self.img_size / max(h0, w0)  # resize image to img_size
-        if r != 1:  # always resize down, only resize up if training with augmentation
-            interp = cv2.INTER_AREA if r < 1 and not self.augment else cv2.INTER_LINEAR
-            img = cv2.resize(img, (int(w0 * r), int(h0 * r)), interpolation=interp)
-        return img, (h0, w0), img.shape[:2]  # img, hw_original, hw_resized
-    return self.ims[index], self.img_hw0[index], self.img_hw[index]  # img, hw_original, hw_resized
-
-
 def copy_paste(im, labels, segments, p=0.5):
     # Implement Copy-Paste augmentation https://arxiv.org/abs/2012.07177, labels as nx5 np.array(cls, xyxy)
     n = len(segments)
@@ -198,7 +182,8 @@ def load_samples(self, index):
     indices = [index] + random.choices(self.indices, k=3)  # 3 additional image indices
     for i, idx in enumerate(indices):
         # Load image
-        img, _, (h, w) = load_image(self, idx)
+        # img, _, (h, w) = load_image(self, idx)
+        img, _, (h, w) = self.load_image(idx)
 
         # place img in img4
         if i == 0:  # top left
