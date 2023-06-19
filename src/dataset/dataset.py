@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ============================================================================
-
+import ctypes
 import math
 import random
 import psutil
@@ -53,6 +53,7 @@ class Dataset:
         self.prefix = prefix
         self.stride = stride
         self.pad = pad
+        self.is_cache = False
         self.img_files, self.label_files = load_images_and_labels(data_path, prefix)
         self.cache = Cache(data_path, augment=augment,
                            img_files=self.img_files, label_files=self.label_files, prefix=prefix)
@@ -164,6 +165,26 @@ class Dataset:
         self.imgs: List[Optional[np.ndarray]] = [None] * n_total
         self.npy_files = [Path(f).with_suffix('.npy') for f in self.img_files]
         if is_cache:
+            self.is_cache = True
+            if cache_images == 'ram':
+                # Create share memory object for images
+                import multiprocessing
+                img_channel = 3
+                imgs_share_base = multiprocessing.Array(ctypes.c_uint8,
+                                                   n_total * self.img_size * self.img_size * img_channel,
+                                                   lock=False)
+                imgs_hw0_share_base = multiprocessing.Array(ctypes.c_int32,
+                                                       n_total * 3,    # (height, width, channel)
+                                                       lock=False)
+                imgs_hw_share_base = multiprocessing.Array(ctypes.c_int32,
+                                                      n_total * 3,     # (height, width, channel)
+                                                      lock=False)
+                self.imgs_share = np.frombuffer(imgs_share_base, dtype=ctypes.c_uint8)
+                self.imgs_share = self.imgs_share.reshape((n_total, self.img_size * self.img_size * img_channel))
+                self.imgs_hw0_share = np.frombuffer(imgs_hw0_share_base, dtype=ctypes.c_int32)
+                self.imgs_hw0_share = self.imgs_hw0_share.reshape((n_total, 3))
+                self.imgs_hw_share = np.frombuffer(imgs_hw_share_base, dtype=ctypes.c_int32)
+                self.imgs_hw_share = self.imgs_hw_share.reshape((n_total, 3))
             b, gb = 0, 1 << 30  # bytes of cached images, bytes per gigabytes
             self.img_hw0, self.img_hw = [None] * n_total, [None] * n_total
             fcn = self.cache_images_to_disk if self.cache_images == 'disk' else self.load_image
@@ -173,7 +194,11 @@ class Dataset:
                 if cache_images == 'disk':
                     b += self.npy_files[i].stat().st_size
                 else:  # 'ram'
-                    self.imgs[i], self.img_hw0[i], self.img_hw[i] = x  # im, hw_orig, hw_resized = load_image(self, i)
+                    # self.imgs[i], self.img_hw0[i], self.img_hw[i] = x  # im, hw_orig, hw_resized = load_image(self, i)
+                    img, img_hw0, img_hw = x
+                    self.imgs_share[i][:img.nbytes] = img.flatten()
+                    self.imgs_hw0_share[i] = (*img_hw0, 3)
+                    self.imgs_hw_share[i] = (*img_hw, 3)
                     b += self.imgs[i].nbytes
                 pbar.desc = f'{self.prefix}Caching images ({b / gb:.1f}GB {cache_images})'
             pbar.close()
@@ -185,6 +210,14 @@ class Dataset:
             np.save(f.as_posix(), cv2.imread(self.img_files[i]))
 
     def load_image(self, i):
+        if self.is_cache and self.cache_images == 'ram':
+            # load from shared memory
+            img_hw0: np.ndarray = self.imgs_hw0_share[i]
+            img_hw: np.ndarray = self.imgs_hw_share[i]
+            nbytes = np.prod(img_hw)
+            img: np.ndarray = self.imgs_share[i][:nbytes]
+            img = img.reshape(tuple(img_hw))
+            return img, tuple(img_hw0), tuple(img_hw)
         # Loads 1 image from dataset index 'i', returns (im, original hw, resized hw)
         img, img_file, npy_file = self.imgs[i], self.img_files[i], self.npy_files[i]
         if img is None:  # not cached in RAM
@@ -200,17 +233,3 @@ class Dataset:
                 img = cv2.resize(img, (math.ceil(w0 * r), math.ceil(h0 * r)), interpolation=interp)
             return img, (h0, w0), img.shape[:2]  # im, hw_original, hw_resized
         return self.imgs[i], self.img_hw0[i], self.img_hw[i]  # im, hw_original, hw_resized
-
-    def get_item(self):
-        pass
-
-    def __deepcopy__(self, memo):
-        cls = self.__class__
-        result = cls.__new__(cls)
-        memo[id(self)] = result
-        for k, v in self.__dict__.items():
-            if k != "imgs":
-                setattr(result, k, deepcopy(v, memo))
-            else:
-                setattr(result, "imgs", [arr[:] for arr in self.imgs])  # Create array view
-        return result

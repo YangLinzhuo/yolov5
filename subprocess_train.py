@@ -67,6 +67,13 @@ def judge_multi_train(processes):
 
 
 def train():
+    pass
+
+def main():
+    train()
+
+
+if __name__ == "__main__":
     opt = get_args_train()
     opt.save_json |= opt.data.endswith('coco.yaml')
     opt.data, opt.cfg, opt.hyp = check_file(opt.data), check_file(opt.cfg), check_file(opt.hyp)  # check files
@@ -97,12 +104,13 @@ def train():
         os.environ["RANK_SIZE"] = str(opt.rank)
 
     from mindspore import context
+
     ms_mode = context.GRAPH_MODE if opt.ms_mode == "graph" else context.PYNATIVE_MODE
     # Must call set_context here, otherwise subprocess might terminate unexpectedly
     context.set_context(mode=ms_mode, device_target=opt.device_target, save_graphs=False)
 
     for i in range(device_num):
-        dataset_copy = deepcopy(dataset)
+        # dataset_copy = deepcopy(dataset)
         opt_copy = deepcopy(opt)
         opt_copy.rank = rank_id_start + i
         opt_copy.device_id = device_id + i
@@ -110,16 +118,10 @@ def train():
         os.environ["DEVICE_ID"] = str(opt_copy.device_id)
         LOGGER.info(f"start training for rank {opt_copy.rank}, device {opt_copy.device_id}")
         # print(f"start training for rank {opt_copy.rank}, device {opt_copy.device_id}")
-        p = Process(target=subprocess_train, args=(hyp, opt_copy, dataset_cfg, dataset_copy))
+        p = Process(target=subprocess_train, args=(hyp, opt_copy, dataset_cfg, dataset))
         p.start()
         subprocesses.append(p)
     exitcode = judge_multi_train(subprocesses)
     if exitcode:
         raise RuntimeError("Distributed train failed!")
 
-def main():
-    train()
-
-
-if __name__ == "__main__":
-    main()
