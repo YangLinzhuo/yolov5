@@ -101,7 +101,7 @@ if __name__ == "__main__":
     dataset = Dataset(dataset_cfg.train, stride=32, img_size=img_size, cache_images=opt.cache_images)
     if opt.distributed_train:
         os.environ["RANK_TABLE_FILE"] = os.path.realpath(opt.rank_table_file)
-        os.environ["RANK_SIZE"] = str(opt.rank)
+        os.environ["RANK_SIZE"] = str(opt.rank_size)
 
     from mindspore import context
 

@@ -54,6 +54,7 @@ class Dataset:
         self.stride = stride
         self.pad = pad
         self.is_cache = False
+        self.cache_ready = False
         self.img_files, self.label_files = load_images_and_labels(data_path, prefix)
         self.cache = Cache(data_path, augment=augment,
                            img_files=self.img_files, label_files=self.label_files, prefix=prefix)
@@ -199,9 +200,11 @@ class Dataset:
                     self.imgs_share[i][:img.nbytes] = img.flatten()
                     self.imgs_hw0_share[i] = (*img_hw0, 3)
                     self.imgs_hw_share[i] = (*img_hw, 3)
-                    b += self.imgs[i].nbytes
+                    # b += self.imgs[i].nbytes
+                    b += img.nbytes
                 pbar.desc = f'{self.prefix}Caching images ({b / gb:.1f}GB {cache_images})'
             pbar.close()
+            self.cache_ready = True
 
     def cache_images_to_disk(self, i):
         # Saves an image as an *.npy file for faster loading
@@ -210,14 +213,14 @@ class Dataset:
             np.save(f.as_posix(), cv2.imread(self.img_files[i]))
 
     def load_image(self, i):
-        if self.is_cache and self.cache_images == 'ram':
+        if self.is_cache and self.cache_images == 'ram' and self.cache_ready:
             # load from shared memory
             img_hw0: np.ndarray = self.imgs_hw0_share[i]
             img_hw: np.ndarray = self.imgs_hw_share[i]
             nbytes = np.prod(img_hw)
             img: np.ndarray = self.imgs_share[i][:nbytes]
             img = img.reshape(tuple(img_hw))
-            return img, tuple(img_hw0), tuple(img_hw)
+            return img, tuple(img_hw0)[:2], tuple(img_hw)[:2]
         # Loads 1 image from dataset index 'i', returns (im, original hw, resized hw)
         img, img_file, npy_file = self.imgs[i], self.img_files[i], self.npy_files[i]
         if img is None:  # not cached in RAM
@@ -230,6 +233,6 @@ class Dataset:
             r = self.img_size / max(h0, w0)  # ratio
             if r != 1:  # if sizes are not equal
                 interp = cv2.INTER_LINEAR if (self.augment or r > 1) else cv2.INTER_AREA
-                img = cv2.resize(img, (math.ceil(w0 * r), math.ceil(h0 * r)), interpolation=interp)
+                img = cv2.resize(img, (round(w0 * r), round(h0 * r)), interpolation=interp)
             return img, (h0, w0), img.shape[:2]  # im, hw_original, hw_resized
         return self.imgs[i], self.img_hw0[i], self.img_hw[i]  # im, hw_original, hw_resized
