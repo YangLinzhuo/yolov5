@@ -98,7 +98,6 @@ class MetricStatistics:
         self.ap_cls = np.array(0)  # average precision(AP) of each class
 
         self.seen = 0
-        self.confusion_matrix = None
         self.nt = None
 
 
