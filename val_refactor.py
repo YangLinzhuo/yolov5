@@ -7,7 +7,10 @@ import os
 import time
 import yaml
 from collections import namedtuple
+from dataclasses import dataclass
+from functools import wraps
 from pathlib import Path
+from typing import Optional
 
 import numpy as np
 import mindspore as ms
@@ -26,14 +29,6 @@ from src.general import (increment_path, check_img_size, colorstr, coco80_to_coc
 from src.network.yolo import Model
 from src.plots import output_to_target, plot_images, plot_study_txt
 from third_party.yolo2coco.yolo2coco import YOLO2COCO
-
-
-class Dict(dict):
-    def __setattr__(self, key, value):
-        self.__setitem__(key, value)
-
-    def __getattr__(self, item):
-        return self.__getitem__(item)
 
 
 class TimeStatistics:
@@ -72,7 +67,6 @@ class MetricStatistics:
         self.ap_cls = np.array(0)  # average precision(AP) of each class
 
         self.seen = 0
-        self.confusion_matrix = None
         self.nt = None
 
     def __iter__(self):
@@ -117,6 +111,7 @@ class MetricStatistics:
 
 
 class COCOResult:
+    # TODO: Write in more cleaner way
     def __init__(self, eval_result=None):
         self.stats: np.ndarray | None = None
         self.stats_str: str = ''
@@ -137,6 +132,21 @@ class COCOResult:
         if self.stats is None:
             return -1
         return self.stats[1]
+
+
+def catch_exception(msg: Optional[str] = None):
+    def decorator(func):
+        @wraps(func)
+        def _wrapped_func(*args, **kwargs):
+            try:
+                func(*args, **kwargs)
+            except Exception:
+                if msg is not None:
+                    print(msg)
+                import traceback
+                traceback.print_exc()
+        return _wrapped_func
+    return decorator
 
 
 def check_file(file):
@@ -200,7 +210,7 @@ def load_checkpoint_to_yolo(model, ckpt_path):
         if k.startswith("model.") or k.startswith("updates"):
             new_params[k] = v
         if k.startswith("ema.ema."):
-            k = k[len("ema.ema."):]
+            k = k.lstrip("ema.ema.")
             new_params[k] = v
     ms.load_param_into_net(model, new_params)
 
@@ -211,7 +221,7 @@ def configure_model(opt: ValConfig, dataset_cfg, model=None):
         # Load model and hyperparameters
         with open(opt.hyp) as f:
             hyper_params = yaml.load(f, Loader=yaml.SafeLoader)  # load hyps
-        model = Model(opt.cfg, ch=3, nc=dataset_cfg['nc'], anchors=hyper_params.get('anchors'),
+        model = Model(opt.cfg, ch=3, nc=dataset_cfg.nc, anchors=hyper_params.get('anchors'),
                       sync_bn=False, hyp=hyper_params)  # create
         load_checkpoint_to_yolo(model, opt.weights)
         opt.grid_size = max(int(ops.cast(model.stride, ms.float16).max()), 32)  # grid size (max stride)
@@ -231,7 +241,7 @@ def configure_model(opt: ValConfig, dataset_cfg, model=None):
 def configure_dataset(opt: ValConfig, dataset_cfg, dataset=None, dataloader=None):
     if dataloader is None or dataset is None:
         task = opt.task if opt.task in ('train', 'val', 'test') else 'val'  # path to train/val/test img
-        dataloader, dataset, per_epoch_size = create_dataloader(dataset_cfg[task], opt.img_size, opt.batch_size,
+        dataloader, dataset, per_epoch_size = create_dataloader(getattr(dataset_cfg, task), opt.img_size, opt.batch_size,
                                                                 opt.grid_size, opt,
                                                                 epoch_size=1, pad=0.5, rect=opt.rect,
                                                                 rank=opt.rank % 8,
@@ -369,9 +379,9 @@ def model_step(opt: ValConfig, model, img: np.ndarray, compute_loss=None):
 
 
 def loss_step(opt: ValConfig, train_out, targets: np.ndarray, compute_loss=None):
-    targets = Tensor.from_numpy(targets)
     if not compute_loss:
         return 0.
+    targets = Tensor.from_numpy(targets)
     if opt.half_precision:
         targets = ops.cast(targets, ms.float16)
     loss = compute_loss(train_out, targets)[1][:3].asnumpy()  # box, obj, cls
@@ -515,8 +525,8 @@ def plot_confusion_matrix(opt: ValConfig, dataset_cfg: DatasetConfig, confusion_
         confusion_matrix.plot(save_dir=opt.save_dir, names=names)
 
 
-def get_val_anno(opt: ValConfig, dataset_cfg):
-    data_dir = Path(dataset_cfg["val"]).parent
+def get_val_anno(opt: ValConfig, dataset_cfg: DatasetConfig):
+    data_dir = Path(dataset_cfg.val).parent
     anno_json = os.path.join(data_dir, "annotations/instances_val2017.json")
     if opt.transfer_format and not os.path.exists(anno_json):
         # data format transfer if annotations does not exists
@@ -560,18 +570,23 @@ def visualize_coco(opt: ValConfig, dataset_cfg: DatasetConfig, anno_json, pred_j
     dataset_coco = COCO(anno_json)
     coco_visual = CocoVisualUtil()
     eval_types = ["bbox"]
-    config = {"dataset": "coco"}
+
+    @dataclass
+    class Config:
+        dataset: str = "coco"
+    config = Config(dataset="coco")
     data_dir = Path(dataset_cfg.val).parent
     img_path_name = os.path.splitext(os.path.basename(dataset_cfg.val))[0]
     im_path_dir = os.path.join(data_dir, "images", img_path_name)
     with open(pred_json_path, 'r') as f:
         result = json.load(f)
     result_files = coco_visual.results2json(dataset_coco, result, "./results.pkl")
-    coco_visual.coco_eval(Dict(config), result_files, eval_types, dataset_coco, im_path_dir=im_path_dir,
+    coco_visual.coco_eval(config, result_files, eval_types, dataset_coco, im_path_dir=im_path_dir,
                           score_threshold=None,
                           recommend_threshold=opt.recommend_threshold)
 
 
+@catch_exception("Exception when running pycocotools")
 def eval_coco(anno_json, pred_json, is_coco, dataset=None):
     print("Start evaluating mAP...")
     anno = COCO(anno_json)  # init annotations api
@@ -587,6 +602,7 @@ def eval_coco(anno_json, pred_json, is_coco, dataset=None):
     return coco_result
 
 
+@catch_exception("Error when evaluating COCO mAP:")
 def save_eval_result(opt: ValConfig, metric_stats, dataset_cfg: DatasetConfig, dataset=None):
     anno_json = get_val_anno(opt, dataset_cfg)
     ckpt_name = Path(opt.weights).stem if opt.weights is not None else ''  # weights
@@ -600,19 +616,10 @@ def save_eval_result(opt: ValConfig, metric_stats, dataset_cfg: DatasetConfig, d
             if opt.distributed_eval:
                 pred_json_path, pred_json = merge_pred_json(opt, prefix=ckpt_name)
             if opt.result_view or opt.recommend_threshold:
-                try:
-                    visualize_coco(opt, dataset_cfg, anno_json, pred_json_path)
-                except Exception:
-                    print("Failed when visualize evaluation result.")
-                    import traceback
-                    traceback.print_exc()
-            try:
-                result = eval_coco(anno_json, pred_json, dataset_cfg.is_coco, dataset=dataset)
-                print(f"\nCOCO mAP:\n{result.stats_str}")
-            except Exception:
-                print("Exception when running pycocotools")
-                import traceback
-                traceback.print_exc()
+                wrapped_visualize_coco = catch_exception("Failed when visualize evaluation result.")(visualize_coco)
+                wrapped_visualize_coco(opt, dataset_cfg, anno_json, pred_json_path)
+            eval_coco(anno_json, pred_json, dataset_cfg.is_coco, dataset=dataset)
+            print(f"\nCOCO mAP:\n{result.stats_str}")
         coco_result = result
     return coco_result
 
@@ -625,7 +632,7 @@ def save_map(opt: ValConfig, dataset_cfg, coco_result):
         file.write(f"COCO map:\n{coco_result.stats_str}\n")
         if coco_result.category_stats_strs:
             for idx, category_str in enumerate(coco_result.category_stats_strs):
-                file.write(f"\nclass {dataset_cfg['names'][idx]}:\n{category_str}\n")
+                file.write(f"\nclass {dataset_cfg.names[idx]}:\n{category_str}\n")
 
 
 def val(opt: ValConfig, model=None, dataset=None, dataloader=None,
@@ -650,12 +657,7 @@ def val(opt: ValConfig, model=None, dataset=None, dataloader=None,
     coco_result = COCOResult()
     # Save JSON
     if opt.save_json and metric_stats.pred_json:
-        try:
-            coco_result = save_eval_result(opt, metric_stats, dataset_cfg)
-        except Exception as e:
-            import traceback
-            print("Error when evaluating COCO mAP:")
-            traceback.print_exc()
+        save_eval_result(opt, metric_stats, dataset_cfg)
 
     # Return results
     if not is_training and opt.rank % 8 == 0:
@@ -679,6 +681,28 @@ def main():
     if opt.task in ('train', 'val', 'test'):  # run normally
         opt.save_txt = opt.save_txt | opt.save_hybrid
         val(opt)
+
+    elif opt.task == 'speed':  # speed benchmarks
+        opt.conf_thres = 0.25
+        opt.iou_thres = 0.45
+        opt.save_json = False
+        opt.plots = False
+        val(opt)
+
+    elif opt.task == 'study':  # run over a range of settings and save/plot
+        # python val.py --task study --data coco.yaml --iou 0.65 --weights yolov5.ckpt
+        x = list(range(256, 1536 + 128, 128))  # x axis (image sizes)
+        f = f'study_{Path(opt.data).stem}_{Path(opt.weights).stem}.txt'  # filename to save to
+        y = []  # y axis
+        opt.save_json = False
+
+        for i in x:  # img-size
+            print(f'\nRunning {f} point {i}...')
+            metric_stats, _, speed, _ = val(opt)
+            y.append(tuple(metric_stats)[:7] + speed)  # results and times
+        np.savetxt(f, y, fmt='%10.4g')  # save
+        os.system('zip -r study.zip study_*.txt')
+        plot_study_txt(x=x)  # plot
 
 
 if __name__ == "__main__":

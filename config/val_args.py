@@ -1,11 +1,9 @@
 from __future__ import annotations
 import ast
 from argparse import ArgumentParser
-from typing import Literal, Optional
+from typing import Literal, Union
 
 from pydantic import BaseModel
-
-from src.general import coco80_to_coco91_class
 
 
 MS_MODE_NAME = Literal["graph", "pynative"]
@@ -26,7 +24,7 @@ class DatasetConfig(BaseModel):
     train: str  # 118287 images
     val: str  # 5000 images
     test: str  # 20288 of 40670 images, submit to https://competitions.codalab.org/competitions/20794
-    names: list | dict
+    names: Union[list, dict]
     nc: int
     is_coco: bool = True
     cls_start_idx: int = 1
