@@ -1,8 +1,11 @@
+from __future__ import annotations
 import ast
 from argparse import ArgumentParser
 from typing import Literal, Optional
 
 from pydantic import BaseModel
+
+from src.general import coco80_to_coco91_class
 
 
 MS_MODE_NAME = Literal["graph", "pynative"]
@@ -18,6 +21,19 @@ class EnvConfig(BaseModel):
 
 
 class DatasetConfig(BaseModel):
+    dataset_name: str = 'coco'
+    root: str
+    train: str  # 118287 images
+    val: str  # 5000 images
+    test: str  # 20288 of 40670 images, submit to https://competitions.codalab.org/competitions/20794
+    names: list | dict
+    nc: int
+    is_coco: bool = True
+    cls_start_idx: int = 1
+    cls_map: list = []
+
+
+class DataConfig(BaseModel):
     data: str = 'config/data/coco.yaml'
     batch_size: int = 32
     img_size: int = 640
@@ -42,7 +58,7 @@ class InferBasicConfig(BaseModel):
     verbose: bool = False
 
 
-class ValConfig(EnvConfig, DatasetConfig, BasicConfig, InferBasicConfig):
+class ValConfig(EnvConfig, DataConfig, BasicConfig, InferBasicConfig):
     distributed_eval: bool = False
     weights: str = './EMA_yolov5s_300.ckpt'
     rect: bool = False

@@ -15,7 +15,7 @@ from mindspore import Tensor, ops
 from mindspore.communication.management import get_group_size, get_rank
 from pycocotools.coco import COCO
 
-from config.val_args import ValConfig, get_val_args
+from config.val_args import ValConfig, DatasetConfig, get_val_args
 from src.coco_visual import CocoVisualUtil
 from src.dataset import create_dataloader
 from src.metrics import (ConfusionMatrix, non_max_suppression, ap_per_class, scale_coords,
@@ -76,14 +76,16 @@ class MetricStatistics:
         self.nt = None
 
     def __iter__(self):
-        for _, val in vars(self).items():
-            yield val
+        for _, value in vars(self).items():
+            yield value
 
-    def set_loss(self, loss):
-        self.loss_box, self.loss_obj, self.loss_cls = loss.tolist()
-
-    def get_loss_tuple(self):
+    @property
+    def loss(self):
         return self.loss_box, self.loss_obj, self.loss_cls
+
+    @loss.setter
+    def loss(self, loss_val):
+        self.loss_box, self.loss_obj, self.loss_cls = loss_val.tolist()
 
     def set_mean_stats(self):
         self.mp = np.mean(self.precision)
@@ -137,7 +139,6 @@ class COCOResult:
         return self.stats[1]
 
 
-
 def check_file(file):
     # Search for file if not found
     if Path(file).is_file() or file == '':
@@ -168,17 +169,18 @@ def get_dataset_cfg(opt: ValConfig):
     if isinstance(opt.data, str):
         is_coco = opt.data.endswith('coco.yaml')
         with open(opt.data) as f:
-            dataset_cfg = yaml.load(f, Loader=yaml.SafeLoader)
+            cfg = yaml.load(f, Loader=yaml.SafeLoader)
     elif isinstance(opt.data, dict):
-        dataset_cfg = opt.data
+        cfg = opt.data
     else:
         raise TypeError("The type of opt.data must be str or dict.")
     if opt.single_cls:
-        dataset_cfg['nc'] = 1
-    dataset_cfg['train'] = os.path.join(dataset_cfg['root'], dataset_cfg['train'])
-    dataset_cfg['val'] = os.path.join(dataset_cfg['root'], dataset_cfg['val'])
-    dataset_cfg['test'] = os.path.join(dataset_cfg['root'], dataset_cfg['test'])
-    return is_coco, dataset_cfg
+        cfg['nc'] = 1
+    cfg['train'] = os.path.join(cfg['root'], cfg['train'])
+    cfg['val'] = os.path.join(cfg['root'], cfg['val'])
+    cfg['test'] = os.path.join(cfg['root'], cfg['test'])
+    dataset_cfg = DatasetConfig(**cfg, is_coco=is_coco)
+    return dataset_cfg
 
 
 def create_folders(opt: ValConfig, cur_epoch=None):
@@ -301,8 +303,9 @@ def write_json_list(cls_map, pred, pred_json, path):
             'score': round(p[4], 5)})
 
 
-def eval_metric(opt: ValConfig, confusion_matrix, img, targets, out: list[np.ndarray], paths, shapes,
-                metric_stats: MetricStatistics, cls_map):
+def eval_metric(opt: ValConfig, confusion_matrix, out: list[np.ndarray], metric_stats: MetricStatistics, cls_map,
+                data=None):
+    img, targets, paths, shapes = data
     iou_vec = np.linspace(0.5, 0.95, 10)  # iou vector for mAP@0.5:0.95
     num_iou = np.prod(iou_vec.shape)
     metric_start_time = time.time()
@@ -353,42 +356,53 @@ def eval_metric(opt: ValConfig, confusion_matrix, img, targets, out: list[np.nda
     return metric_duration
 
 
-def run_eval(opt: ValConfig, confusion_matrix,
-             dataset_cfg, model, dataloader, cls_map, compute_loss=None):
+def model_step(opt: ValConfig, model, img: np.ndarray, compute_loss=None):
+    img = Tensor.from_numpy(img)
+    if opt.half_precision:
+        img = ops.cast(img, ms.float16)
+    # inference and training outputs
+    if compute_loss or not opt.augment:
+        pred_out, train_out = model(img)
+    else:
+        pred_out, train_out = (model(img, augment=opt.augment), None)
+    return pred_out, train_out
+
+
+def loss_step(opt: ValConfig, train_out, targets: np.ndarray, compute_loss=None):
+    targets = Tensor.from_numpy(targets)
+    if not compute_loss:
+        return 0.
+    if opt.half_precision:
+        targets = ops.cast(targets, ms.float16)
+    loss = compute_loss(train_out, targets)[1][:3].asnumpy()  # box, obj, cls
+    return loss
+
+
+def run_eval(opt: ValConfig, dataset_cfg: DatasetConfig, model, dataloader, compute_loss=None):
     loss = np.zeros(3)
     step_start_time = time.time()
     time_stats = TimeStatistics()
     metric_stats = MetricStatistics()
+    confusion_matrix = ConfusionMatrix(nc=dataset_cfg.nc)
     for idx, data in enumerate(dataloader):
         # targets: Nx6 ndarray, img_id, label, x, y, w, h
         img, targets, paths, shapes = data["img"], data["label_out"], data["img_files"], data["shapes"]
         img = img / 255.0  # 0 - 255 to 0.0 - 1.0
-        img_tensor = Tensor.from_numpy(img)
-        targets_tensor = Tensor.from_numpy(targets)
-        if opt.half_precision:
-            img_tensor = ops.cast(img_tensor, ms.float16)
-            targets_tensor = ops.cast(targets_tensor, ms.float16)
-
-        targets = targets.reshape((-1, 6))
-        targets = targets[targets[:, 1] >= 0]
-        nb, _, height, width = img.shape  # batch size, channels, height, width
         data_duration = time.time() - step_start_time
 
         # Run model
         infer_start_time = time.time()
-        # inference and training outputs
-        if compute_loss or not opt.augment:
-            pred_out, train_out = model(img_tensor)
-        else:
-            pred_out, train_out = (model(img_tensor, augment=opt.augment), None)
+        pred_out, train_out = model_step(opt, model, img, compute_loss)
         infer_duration = time.time() - infer_start_time
         time_stats.infer += infer_duration
 
         # Compute loss
-        if compute_loss:
-            loss += compute_loss(train_out, targets_tensor)[1][:3].asnumpy()  # box, obj, cls
+        loss += loss_step(opt, train_out, targets, compute_loss)
 
         # NMS
+        targets = targets.reshape((-1, 6))
+        targets = targets[targets[:, 1] >= 0]
+        nb, _, height, width = img.shape  # batch size, channels, height, width
         targets[:, 2:] *= np.array([width, height, width, height], targets.dtype)  # to pixels
         label = [targets[targets[:, 0] == i, 1:] for i in range(nb)] if opt.save_hybrid else []  # for autolabelling
         nms_start_time = time.time()
@@ -398,17 +412,18 @@ def run_eval(opt: ValConfig, confusion_matrix,
                                   agnostic=opt.single_cls)
         nms_duration = time.time() - nms_start_time
         time_stats.nms += nms_duration
+
         # Metrics
-        metric_duration = eval_metric(opt, confusion_matrix, img, targets, out, paths, shapes,
-                                      metric_stats, cls_map)
+        metric_duration = eval_metric(opt, confusion_matrix, out, metric_stats, dataset_cfg.cls_map,
+                                      data=(img, targets, paths, shapes))
         time_stats.metric += metric_duration
 
         # Plot images
         if opt.plots and idx < 3:
             labels_path = os.path.join(opt.save_dir, f'test_batch{idx}_labels.jpg')  # labels
-            plot_images(img, targets, paths, labels_path, dataset_cfg['names'])
+            plot_images(img, targets, paths, labels_path, dataset_cfg.names)
             pred_path = os.path.join(opt.save_dir, f'test_batch{idx}_pred.jpg')  # predictions
-            plot_images(img, output_to_target(out), paths, pred_path, dataset_cfg['names'])
+            plot_images(img, output_to_target(out), paths, pred_path, dataset_cfg.names)
 
         print(f"Step {idx + 1}/{opt.per_epoch_size} "
               f"Time total {(time.time() - step_start_time):.2f}s  "
@@ -418,7 +433,12 @@ def run_eval(opt: ValConfig, confusion_matrix,
               f"Metric {metric_duration * 1e3:.2f}ms")
 
         step_start_time = time.time()
-    metric_stats.set_loss(loss / opt.per_epoch_size)
+    metric_stats.loss = loss / opt.per_epoch_size
+
+    # Plots
+    if opt.plots:
+        plot_confusion_matrix(opt, dataset_cfg, confusion_matrix)
+
     return metric_stats, time_stats
 
 
@@ -433,8 +453,7 @@ def merge_pred_stats(opt: ValConfig, metric_stats: MetricStatistics):
     return pred_stats
 
 
-def compute_map_stats(opt: ValConfig, dataset_cfg, metric_stats: MetricStatistics,
-                      is_training):
+def compute_map_stats(opt: ValConfig, dataset_cfg: DatasetConfig, metric_stats: MetricStatistics, is_training):
     # Compute metrics
     # pred_stats: list[np.ndarray], np.concatenate((correct, conf, pred_cls, target_cls), 0)
     metric_stats.pred_stats = [np.concatenate(x, 0) for x in zip(*metric_stats.pred_stats)]  # to numpy
@@ -453,10 +472,10 @@ def compute_map_stats(opt: ValConfig, dataset_cfg, metric_stats: MetricStatistic
     metric_stats.pred_stats = pred_stats
 
     seen = metric_stats.seen
-    names = dataset_cfg['names']
-    nc = dataset_cfg['nc']
+    names = dataset_cfg.names
+    nc = dataset_cfg.nc
     if pred_stats and pred_stats[0].any():
-        metric_stats.compute_ap_per_class(plot=opt.plots, save_dir=opt.save_dir, names=dataset_cfg['names'])
+        metric_stats.compute_ap_per_class(plot=opt.plots, save_dir=opt.save_dir, names=dataset_cfg.names)
     nt = np.bincount(pred_stats[3].astype(int), minlength=nc)  # number of targets per class
     metric_stats.nt = nt
 
@@ -486,23 +505,24 @@ def print_stats(opt: ValConfig, metric_stats: MetricStatistics, time_stats: Time
     return speed
 
 
-def plot_confusion_matrix(opt: ValConfig, dataset_cfg, confusion_matrix):
+def plot_confusion_matrix(opt: ValConfig, dataset_cfg: DatasetConfig, confusion_matrix):
     matrix = ms.Tensor(confusion_matrix.matrix)
+    names = dataset_cfg.names if isinstance(dataset_cfg.names, list) else list(dataset_cfg.names.values())
     if opt.distributed_eval:
         matrix = AllReduce()(matrix).asnumpy()
     confusion_matrix.matrix = matrix
     if opt.rank % 8 == 0:
-        confusion_matrix.plot(save_dir=opt.save_dir, names=list(dataset_cfg['names'].values()))
+        confusion_matrix.plot(save_dir=opt.save_dir, names=names)
 
 
-def get_val_anno(opt: ValConfig, dataset_cfg, cls_map):
+def get_val_anno(opt: ValConfig, dataset_cfg):
     data_dir = Path(dataset_cfg["val"]).parent
     anno_json = os.path.join(data_dir, "annotations/instances_val2017.json")
     if opt.transfer_format and not os.path.exists(anno_json):
         # data format transfer if annotations does not exists
         print("Transfer annotations from yolo to coco format.")
         transformer = YOLO2COCO(data_dir, output_dir=data_dir,
-                                class_names=dataset_cfg["names"], class_map=cls_map,
+                                class_names=dataset_cfg.names, class_map=dataset_cfg.cls_map,
                                 mode='val', annotation_only=True)
         transformer()
     return anno_json
@@ -535,14 +555,14 @@ def merge_pred_json(opt: ValConfig, prefix=''):
     return merged_json, merged_result
 
 
-def visualize_coco(opt: ValConfig, anno_json, pred_json_path, dataset_cfg):
+def visualize_coco(opt: ValConfig, dataset_cfg: DatasetConfig, anno_json, pred_json_path):
     print("Start visualization result.")
     dataset_coco = COCO(anno_json)
     coco_visual = CocoVisualUtil()
     eval_types = ["bbox"]
     config = {"dataset": "coco"}
-    data_dir = Path(dataset_cfg["val"]).parent
-    img_path_name = os.path.splitext(os.path.basename(dataset_cfg["val"]))[0]
+    data_dir = Path(dataset_cfg.val).parent
+    img_path_name = os.path.splitext(os.path.basename(dataset_cfg.val))[0]
     im_path_dir = os.path.join(data_dir, "images", img_path_name)
     with open(pred_json_path, 'r') as f:
         result = json.load(f)
@@ -567,8 +587,8 @@ def eval_coco(anno_json, pred_json, is_coco, dataset=None):
     return coco_result
 
 
-def save_eval_result(opt: ValConfig, metric_stats, dataset_cfg, cls_map, is_coco, dataset=None):
-    anno_json = get_val_anno(opt, dataset_cfg, cls_map)
+def save_eval_result(opt: ValConfig, metric_stats, dataset_cfg: DatasetConfig, dataset=None):
+    anno_json = get_val_anno(opt, dataset_cfg)
     ckpt_name = Path(opt.weights).stem if opt.weights is not None else ''  # weights
     pred_json_path = os.path.join(opt.save_dir, f"{ckpt_name}_predictions_{opt.rank}.json")  # predictions json
     print(f'Evaluating pycocotools mAP... saving {pred_json_path}...')
@@ -581,13 +601,13 @@ def save_eval_result(opt: ValConfig, metric_stats, dataset_cfg, cls_map, is_coco
                 pred_json_path, pred_json = merge_pred_json(opt, prefix=ckpt_name)
             if opt.result_view or opt.recommend_threshold:
                 try:
-                    visualize_coco(opt, anno_json, pred_json_path, dataset_cfg)
+                    visualize_coco(opt, dataset_cfg, anno_json, pred_json_path)
                 except Exception:
                     print("Failed when visualize evaluation result.")
                     import traceback
                     traceback.print_exc()
             try:
-                result = eval_coco(anno_json, pred_json, is_coco)
+                result = eval_coco(anno_json, pred_json, dataset_cfg.is_coco, dataset=dataset)
                 print(f"\nCOCO mAP:\n{result.stats_str}")
             except Exception:
                 print("Exception when running pycocotools")
@@ -608,35 +628,30 @@ def save_map(opt: ValConfig, dataset_cfg, coco_result):
                 file.write(f"\nclass {dataset_cfg['names'][idx]}:\n{category_str}\n")
 
 
-
 def val(opt: ValConfig, model=None, dataset=None, dataloader=None,
         cur_epoch=None, compute_loss=None):
-    is_coco, dataset_cfg = get_dataset_cfg(opt)
-    confusion_matrix = ConfusionMatrix(nc=dataset_cfg['nc'])
+    dataset_cfg = get_dataset_cfg(opt)
     create_folders(opt, cur_epoch)
     is_training, model = configure_model(opt, dataset_cfg, model)
     dataloader, dataset = configure_dataset(opt, dataset_cfg, dataset, dataloader)
 
-    dataset_cfg['names'] = dict(enumerate(model.names if hasattr(model, 'names') else model.module.names))
-    start_idx = 1
-    cls_map = coco80_to_coco91_class() if is_coco else list(range(start_idx, 1000 + start_idx))
+    dataset_cfg.names = dict(enumerate(model.names if hasattr(model, 'names') else model.module.names))
+    dataset_cfg.cls_start_idx = 1
+    dataset_cfg.cls_map = coco80_to_coco91_class() if dataset_cfg.is_coco \
+        else list(range(dataset_cfg.cls_start_idx, 1000 + dataset_cfg.cls_start_idx))
 
     # Test
-    metric_stats, time_stats = run_eval(opt, confusion_matrix, dataset_cfg, model, dataloader, cls_map, compute_loss)
+    metric_stats, time_stats = run_eval(opt, dataset_cfg, model, dataloader, compute_loss)
     compute_map_stats(opt, dataset_cfg, metric_stats, is_training)
 
     # Print speeds
     speed = print_stats(opt, metric_stats, time_stats)
 
-    # Plots
-    if opt.plots:
-        plot_confusion_matrix(opt, dataset_cfg, confusion_matrix)
-
     coco_result = COCOResult()
     # Save JSON
     if opt.save_json and metric_stats.pred_json:
         try:
-            coco_result = save_eval_result(opt, metric_stats, dataset_cfg, cls_map, is_coco)
+            coco_result = save_eval_result(opt, metric_stats, dataset_cfg)
         except Exception as e:
             import traceback
             print("Error when evaluating COCO mAP:")
@@ -645,7 +660,7 @@ def val(opt: ValConfig, model=None, dataset=None, dataloader=None,
     # Return results
     if not is_training and opt.rank % 8 == 0:
         save_map(opt, dataset_cfg, coco_result)
-    maps = np.zeros(dataset_cfg['nc']) + coco_result.get_map()
+    maps = np.zeros(dataset_cfg.nc) + coco_result.get_map()
     if opt.rank % 8 == 0:
         for i, c in enumerate(metric_stats.ap_cls):
             maps[c] = metric_stats.ap[i]
