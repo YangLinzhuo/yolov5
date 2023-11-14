@@ -526,7 +526,6 @@ class SynchronizeManager:
         self.rank = rank
         self.rank_size = rank_size
         self.distributed = distributed  # whether distributed or not
-        self.sync = Synchronize(rank_size) if (distributed and rank_size > 1) else None
         self.sync_file = os.path.join(project_dir, f'sync_file_{rank}.temp')
         self.project_dir = project_dir
 
@@ -540,7 +539,7 @@ class SynchronizeManager:
             return
         if self.rank % 8 == 0:
             while True:
-                json_files =  list(Path(self.project_dir).rglob("sync_file*.temp"))
+                json_files = list(Path(self.project_dir).rglob("sync_file*.temp"))
                 if len(json_files) != self.rank_size:
                     time.sleep(1)
                     LOGGER.info("Waiting...")

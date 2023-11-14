@@ -1,7 +1,8 @@
 from __future__ import annotations
 import ast
 from argparse import ArgumentParser
-from typing import Literal, Union
+from typing import Union
+from typing_extensions import Literal
 
 from pydantic import BaseModel
 

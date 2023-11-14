@@ -24,8 +24,8 @@ from src.dataset import create_dataloader
 from src.metrics import (ConfusionMatrix, non_max_suppression, ap_per_class, scale_coords,
                          box_iou)
 from src.general import COCOEval as COCOeval
-from src.general import (increment_path, check_img_size, colorstr, coco80_to_coco91_class, xyxy2xywh, xywh2xyxy,\
-                        AllReduce, Synchronize, SynchronizeManager)
+from src.general import (increment_path, check_img_size, colorstr, coco80_to_coco91_class, xyxy2xywh, xywh2xyxy,
+                         AllReduce, Synchronize, SynchronizeManager)
 from src.network.yolo import Model
 from src.plots import output_to_target, plot_images, plot_study_txt
 from third_party.yolo2coco.yolo2coco import YOLO2COCO
@@ -134,12 +134,15 @@ class COCOResult:
         return self.stats[1]
 
 
+all_reduce = AllReduce()
+
+
 def catch_exception(msg: Optional[str] = None):
     def decorator(func):
         @wraps(func)
         def _wrapped_func(*args, **kwargs):
             try:
-                func(*args, **kwargs)
+                return func(*args, **kwargs)
             except Exception:
                 if msg is not None:
                     print(msg)
@@ -469,10 +472,9 @@ def compute_map_stats(opt: ValConfig, dataset_cfg: DatasetConfig, metric_stats: 
     metric_stats.pred_stats = [np.concatenate(x, 0) for x in zip(*metric_stats.pred_stats)]  # to numpy
     pred_stats_file = os.path.join(opt.save_dir, f"pred_stats_{opt.rank}.npy")
     np.save(pred_stats_file, np.array(metric_stats.pred_stats, dtype=object), allow_pickle=True)
-    reduce_sum = AllReduce()
     synchronize = Synchronize(opt.rank_size)
     if opt.distributed_eval:
-        metric_stats.seen = reduce_sum(ms.Tensor(np.array(metric_stats.seen, dtype=np.int32))).asnumpy()
+        metric_stats.seen = all_reduce(ms.Tensor(np.array(metric_stats.seen, dtype=np.int32))).asnumpy()
         synchronize()
     if opt.rank % 8 != 0:
         return
@@ -519,7 +521,7 @@ def plot_confusion_matrix(opt: ValConfig, dataset_cfg: DatasetConfig, confusion_
     matrix = ms.Tensor(confusion_matrix.matrix)
     names = dataset_cfg.names if isinstance(dataset_cfg.names, list) else list(dataset_cfg.names.values())
     if opt.distributed_eval:
-        matrix = AllReduce()(matrix).asnumpy()
+        matrix = all_reduce(matrix).asnumpy()
     confusion_matrix.matrix = matrix
     if opt.rank % 8 == 0:
         confusion_matrix.plot(save_dir=opt.save_dir, names=names)
@@ -618,7 +620,7 @@ def save_eval_result(opt: ValConfig, metric_stats, dataset_cfg: DatasetConfig, d
             if opt.result_view or opt.recommend_threshold:
                 wrapped_visualize_coco = catch_exception("Failed when visualize evaluation result.")(visualize_coco)
                 wrapped_visualize_coco(opt, dataset_cfg, anno_json, pred_json_path)
-            eval_coco(anno_json, pred_json, dataset_cfg.is_coco, dataset=dataset)
+            result = eval_coco(anno_json, pred_json, dataset_cfg.is_coco, dataset=dataset)
             print(f"\nCOCO mAP:\n{result.stats_str}")
         coco_result = result
     return coco_result
