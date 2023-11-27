@@ -659,7 +659,7 @@ def val(opt: ValConfig, model=None, dataset=None, dataloader=None,
     coco_result = COCOResult()
     # Save JSON
     if opt.save_json and metric_stats.pred_json:
-        save_eval_result(opt, metric_stats, dataset_cfg)
+        coco_result = save_eval_result(opt, metric_stats, dataset_cfg)
 
     # Return results
     if not is_training and opt.rank % 8 == 0:
