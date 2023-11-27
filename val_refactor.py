@@ -23,7 +23,7 @@ from src.coco_visual import CocoVisualUtil
 from src.dataset import create_dataloader
 from src.metrics import (ConfusionMatrix, non_max_suppression, ap_per_class, scale_coords,
                          box_iou)
-from src.general import COCOEval as COCOeval
+from src.general import COCOEval as COCOeval, LOGGER
 from src.general import (increment_path, check_img_size, colorstr, coco80_to_coco91_class, xyxy2xywh, xywh2xyxy,
                          AllReduce, Synchronize, SynchronizeManager)
 from src.network.yolo import Model
@@ -139,17 +139,14 @@ class COCOResult:
 __ALL_REDUCE = AllReduce()
 
 
-def catch_exception(msg: Optional[str] = None):
+def catch_exception(msg=""):
     def decorator(func):
         @wraps(func)
         def _wrapped_func(*args, **kwargs):
             try:
                 return func(*args, **kwargs)
             except Exception:
-                if msg is not None:
-                    print(msg)
-                import traceback
-                traceback.print_exc()
+                LOGGER.exception(msg)
         return _wrapped_func
     return decorator
 
@@ -436,12 +433,12 @@ def run_eval(opt: ValConfig, dataset_cfg: DatasetConfig, model, dataloader, comp
             pred_path = os.path.join(opt.save_dir, f'test_batch{idx}_pred.jpg')  # predictions
             plot_images(img, output_to_target(out), paths, pred_path, dataset_cfg.names)
 
-        print(f"Step {idx + 1}/{opt.per_epoch_size} "
-              f"Time total {(time.time() - step_start_time):.2f}s  "
-              f"Data {data_duration * 1e3:.2f}ms  "
-              f"Infer {infer_duration * 1e3:.2f}ms  "
-              f"NMS {nms_duration * 1e3:.2f}ms  "
-              f"Metric {metric_duration * 1e3:.2f}ms")
+        LOGGER.info(f"Step {idx + 1}/{opt.per_epoch_size} "
+                    f"Time total {(time.time() - step_start_time):.2f}s  "
+                    f"Data {data_duration * 1e3:.2f}ms  "
+                    f"Infer {infer_duration * 1e3:.2f}ms  "
+                    f"NMS {nms_duration * 1e3:.2f}ms  "
+                    f"Metric {metric_duration * 1e3:.2f}ms")
 
         step_start_time = time.time()
     metric_stats.loss = loss / opt.per_epoch_size
@@ -492,14 +489,14 @@ def compute_map_stats(opt: ValConfig, dataset_cfg: DatasetConfig, metric_stats: 
     # Print results
     title = ('{:22s}' + '{:11s}' * 6).format('Class', 'Images', 'Instances', 'P', 'R', 'mAP50', 'mAP50-95')
     pf = '{:<20s}' + '{:<12d}' * 2 + '{:<12.3g}' * 4  # print format
-    print(title)
-    print(pf.format('all', seen, nt.sum(), *metric_stats.get_mean_stats()))
+    LOGGER.info(title)
+    LOGGER.info(pf.format('all', seen, nt.sum(), *metric_stats.get_mean_stats()))
 
     # Print results per class
     if (opt.verbose or (nc < 50 and not is_training)) and nc > 1 and pred_stats:
         for i, c in enumerate(metric_stats.ap_cls):
             # Class     Images  Instances          P          R      mAP50   mAP50-95:
-            print(pf.format(names[c], seen, nt[c], *metric_stats.get_ap_per_class(i)))
+            LOGGER.info(pf.format(names[c], seen, nt[c], *metric_stats.get_ap_per_class(i)))
 
 
 def print_stats(opt: ValConfig, metric_stats: MetricStatistics, time_stats: TimeStatistics):
@@ -510,8 +507,8 @@ def print_stats(opt: ValConfig, metric_stats: MetricStatistics, time_stats: Time
     img_size, batch_size = opt.img_size, opt.batch_size
     total_time = (*time_stats.get_tuple(), img_size, img_size, batch_size)  # tuple
     speed = tuple(x / metric_stats.seen * 1E3 for x in total_time[:4]) + (img_size, img_size, batch_size)  # tuple
-    print(speed_fmt_str.format(*speed))
-    print(total_time_fmt_str.format(*total_time))
+    LOGGER.info(speed_fmt_str.format(*speed))
+    LOGGER.info(total_time_fmt_str.format(*total_time))
     return speed
 
 
@@ -530,7 +527,7 @@ def get_val_anno(opt: ValConfig, dataset_cfg: DatasetConfig):
     anno_json = os.path.join(data_dir, "annotations/instances_val2017.json")
     if opt.transfer_format and not os.path.exists(anno_json):
         # data format transfer if annotations does not exists
-        print("Transfer annotations from yolo to coco format.")
+        LOGGER.info("Transfer annotations from yolo to coco format.")
         transformer = YOLO2COCO(data_dir, output_dir=data_dir,
                                 class_names=dataset_cfg.names, class_map=dataset_cfg.cls_map,
                                 mode='val', annotation_only=True)
@@ -544,7 +541,7 @@ def save_json(pred_json, save_path):
 
 
 def merge_pred_json(opt: ValConfig, prefix=''):
-    print("Merge detection results...")
+    LOGGER.info("Merge detection results...")
     merged_json = os.path.join(opt.project_dir, f"{prefix}_predictions_merged.json")
     merged_result = []
     # Waiting
@@ -552,22 +549,22 @@ def merge_pred_json(opt: ValConfig, prefix=''):
         json_files = list(Path(opt.project_dir).rglob("*.json"))
         if len(json_files) != min(8, opt.rank_size):
             time.sleep(1)
-            print("Waiting for json file...")
+            LOGGER.info("Waiting for json file...")
         else:
             break
     for json_file in json_files:
-        print(f"Merge {json_file.resolve()}")
+        LOGGER.info(f"Merge {json_file.resolve()}")
         with open(json_file, "r") as file_handler:
             merged_result.extend(json.load(file_handler))
     with open(merged_json, "w") as file_handler:
         json.dump(merged_result, file_handler)
-    print(f"Merged results saved in {merged_json}.")
+    LOGGER.info(f"Merged results saved in {merged_json}.")
     return merged_json, merged_result
 
 
 @catch_exception("Failed when visualize evaluation result.")
 def visualize_coco(opt: ValConfig, dataset_cfg: DatasetConfig, anno_json, pred_json_path):
-    print("Start visualization result.")
+    LOGGER.info("Start visualization result.")
     dataset_coco = COCO(anno_json)
     coco_visual = CocoVisualUtil()
     eval_types = ["bbox"]
@@ -590,7 +587,7 @@ def visualize_coco(opt: ValConfig, dataset_cfg: DatasetConfig, anno_json, pred_j
 
 @catch_exception("Exception when running pycocotools")
 def eval_coco(anno_json, pred_json, is_coco, dataset=None):
-    print("Start evaluating mAP...")
+    LOGGER.info("Start evaluating mAP...")
     anno = COCO(anno_json)  # init annotations api
     pred = anno.loadRes(pred_json)  # init predictions api
     eval_result = COCOeval(anno, pred, 'bbox')
@@ -600,7 +597,7 @@ def eval_coco(anno_json, pred_json, is_coco, dataset=None):
     eval_result.accumulate()
     eval_result.summarize(category_ids=-1)
     coco_result = COCOResult(eval_result)
-    print("Finish evaluating mAP.")
+    LOGGER.info("Finish evaluating mAP.")
     return coco_result
 
 
@@ -609,7 +606,7 @@ def save_eval_result(opt: ValConfig, metric_stats, dataset_cfg: DatasetConfig, d
     anno_json = get_val_anno(opt, dataset_cfg)
     ckpt_name = Path(opt.weights).stem if opt.weights is not None else ''  # weights
     pred_json_path = os.path.join(opt.save_dir, f"{ckpt_name}_predictions_{opt.rank}.json")  # predictions json
-    print(f'Evaluating pycocotools mAP... saving {pred_json_path}...')
+    LOGGER.info(f'Evaluating pycocotools mAP... saving {pred_json_path}...')
     save_json(metric_stats.pred_json, pred_json_path)
     with SynchronizeManager(opt.rank % 8, min(8, opt.rank_size), opt.distributed_eval, opt.project_dir):
         result = COCOResult()
@@ -620,7 +617,7 @@ def save_eval_result(opt: ValConfig, metric_stats, dataset_cfg: DatasetConfig, d
             if opt.result_view or opt.recommend_threshold:
                 visualize_coco(opt, dataset_cfg, anno_json, pred_json_path)
             result = eval_coco(anno_json, pred_json, dataset_cfg.is_coco, dataset=dataset)
-            print(f"\nCOCO mAP:\n{result.stats_str}")
+            LOGGER.info(f"\nCOCO mAP:\n{result.stats_str}")
         coco_result = result
     return coco_result
 
@@ -628,7 +625,7 @@ def save_eval_result(opt: ValConfig, metric_stats, dataset_cfg: DatasetConfig, d
 def save_map(opt: ValConfig, dataset_cfg, coco_result):
     s = f"\n{len(glob.glob(os.path.join(opt.save_dir, 'labels/*.txt')))} labels saved to " \
         f"{os.path.join(opt.save_dir, 'labels')}" if opt.save_txt else ''
-    print(f"Results saved to {opt.save_dir}, {s}")
+    LOGGER.info(f"Results saved to {opt.save_dir}, {s}")
     with open("class_map.txt", "w") as file:
         file.write(f"COCO map:\n{coco_result.stats_str}\n")
         if coco_result.category_stats_strs:
@@ -698,7 +695,7 @@ def main():
         opt.save_json = False
 
         for i in x:  # img-size
-            print(f'\nRunning {f} point {i}...')
+            LOGGER.info(f'\nRunning {f} point {i}...')
             metric_stats, _, speed, _ = val(opt)
             y.append(tuple(metric_stats)[:7] + speed)  # results and times
         np.savetxt(f, y, fmt='%10.4g')  # save
