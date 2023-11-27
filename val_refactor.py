@@ -10,7 +10,6 @@ from collections import namedtuple
 from dataclasses import dataclass
 from functools import wraps
 from pathlib import Path
-from typing import Optional
 
 import numpy as np
 import mindspore as ms
@@ -213,7 +212,6 @@ def load_checkpoint_to_yolo(model, ckpt_path):
 
 
 def configure_model(opt: ValConfig, dataset_cfg, model=None):
-    is_training = model is not None
     if model is None:  # called in training process
         # Load model and hyperparameters
         with open(opt.hyp) as f:
@@ -232,7 +230,7 @@ def configure_model(opt: ValConfig, dataset_cfg, model=None):
         model.to_float(ms.float16)
 
     model.set_train(False)
-    return is_training, model
+    return model
 
 
 def configure_dataset(opt: ValConfig, dataset_cfg, dataset=None, dataloader=None):
@@ -633,21 +631,25 @@ def save_map(opt: ValConfig, dataset_cfg, coco_result):
                 file.write(f"\nclass {dataset_cfg.names[idx]}:\n{category_str}\n")
 
 
-def val(opt: ValConfig, model=None, dataset=None, dataloader=None,
-        cur_epoch=None, compute_loss=None):
-    dataset_cfg = get_dataset_cfg(opt)
-    create_folders(opt, cur_epoch)
-    is_training, model = configure_model(opt, dataset_cfg, model)
-    dataloader, dataset = configure_dataset(opt, dataset_cfg, dataset, dataloader)
-
+def configure_dataset_cfg(dataset_cfg, model):
     dataset_cfg.names = dict(enumerate(model.names if hasattr(model, 'names') else model.module.names))
     dataset_cfg.cls_start_idx = 1
     dataset_cfg.cls_map = coco80_to_coco91_class() if dataset_cfg.is_coco \
         else list(range(dataset_cfg.cls_start_idx, 1000 + dataset_cfg.cls_start_idx))
+    return dataset_cfg
+
+
+def val(opt: ValConfig, model=None, dataset=None, dataloader=None,
+        cur_epoch=None, compute_loss=None):
+    dataset_cfg = get_dataset_cfg(opt)
+    create_folders(opt, cur_epoch)
+    model = configure_model(opt, dataset_cfg, model)
+    dataloader, dataset = configure_dataset(opt, dataset_cfg, dataset, dataloader)
+    dataset_cfg = configure_dataset_cfg(dataset_cfg, model)
 
     # Test
     metric_stats, time_stats = run_eval(opt, dataset_cfg, model, dataloader, compute_loss)
-    compute_map_stats(opt, dataset_cfg, metric_stats, is_training)
+    compute_map_stats(opt, dataset_cfg, metric_stats, model.training)
 
     # Print speeds
     speed = print_stats(opt, metric_stats, time_stats)
@@ -658,7 +660,7 @@ def val(opt: ValConfig, model=None, dataset=None, dataloader=None,
         coco_result = save_eval_result(opt, metric_stats, dataset_cfg)
 
     # Return results
-    if not is_training and opt.rank % 8 == 0:
+    if not model.training and opt.rank % 8 == 0:
         save_map(opt, dataset_cfg, coco_result)
     maps = np.zeros(dataset_cfg.nc) + coco_result.get_map()
     if opt.rank % 8 == 0:
