@@ -31,6 +31,9 @@ from src.plots import output_to_target, plot_images, plot_study_txt
 from third_party.yolo2coco.yolo2coco import YOLO2COCO
 
 
+__all__ = ['val']
+
+
 class TimeStatistics:
     def __init__(self):
         self.infer = 0.
@@ -111,7 +114,6 @@ class MetricStatistics:
 
 
 class COCOResult:
-    # TODO: Write in more cleaner way
     def __init__(self, eval_result=None):
         self.stats: np.ndarray | None = None
         self.stats_str: str = ''
@@ -134,7 +136,7 @@ class COCOResult:
         return self.stats[1]
 
 
-all_reduce = AllReduce()
+__ALL_REDUCE = AllReduce()
 
 
 def catch_exception(msg: Optional[str] = None):
@@ -178,20 +180,15 @@ def configure_env(opt: ValConfig):
 
 
 def get_dataset_cfg(opt: ValConfig):
-    is_coco = False
-    if isinstance(opt.data, str):
-        is_coco = opt.data.endswith('coco.yaml')
-        with open(opt.data) as f:
-            cfg = yaml.load(f, Loader=yaml.SafeLoader)
-    elif isinstance(opt.data, dict):
-        cfg = opt.data
-    else:
+    if not isinstance(opt.data, str):
         raise TypeError("The type of opt.data must be str or dict.")
+    is_coco = opt.data.endswith('coco.yaml')
+    with open(opt.data) as f:
+        cfg = yaml.load(f, Loader=yaml.SafeLoader)
     if opt.single_cls:
         cfg['nc'] = 1
-    cfg['train'] = os.path.join(cfg['root'], cfg['train'])
-    cfg['val'] = os.path.join(cfg['root'], cfg['val'])
-    cfg['test'] = os.path.join(cfg['root'], cfg['test'])
+    for name in ('train', 'val', 'test'):
+        cfg[name] = os.path.join(cfg['root'], cfg[name])
     dataset_cfg = DatasetConfig(**cfg, is_coco=is_coco)
     return dataset_cfg
 
@@ -270,6 +267,7 @@ def process_batch(detections, labels, iouv):
     Arguments:
         detections (array[N, 6]), x1, y1, x2, y2, conf, class
         labels (array[M, 5]), class, x1, y1, x2, y2
+        iouv (array) intersections over union vector
     Returns:
         correct (array[N, 10]), for 10 IoU levels
     """
@@ -474,7 +472,7 @@ def compute_map_stats(opt: ValConfig, dataset_cfg: DatasetConfig, metric_stats: 
     np.save(pred_stats_file, np.array(metric_stats.pred_stats, dtype=object), allow_pickle=True)
     synchronize = Synchronize(opt.rank_size)
     if opt.distributed_eval:
-        metric_stats.seen = all_reduce(ms.Tensor(np.array(metric_stats.seen, dtype=np.int32))).asnumpy()
+        metric_stats.seen = __ALL_REDUCE(ms.Tensor(np.array(metric_stats.seen, dtype=np.int32))).asnumpy()
         synchronize()
     if opt.rank % 8 != 0:
         return
@@ -521,7 +519,7 @@ def plot_confusion_matrix(opt: ValConfig, dataset_cfg: DatasetConfig, confusion_
     matrix = ms.Tensor(confusion_matrix.matrix)
     names = dataset_cfg.names if isinstance(dataset_cfg.names, list) else list(dataset_cfg.names.values())
     if opt.distributed_eval:
-        matrix = all_reduce(matrix).asnumpy()
+        matrix = __ALL_REDUCE(matrix).asnumpy()
     confusion_matrix.matrix = matrix
     if opt.rank % 8 == 0:
         confusion_matrix.plot(save_dir=opt.save_dir, names=names)
@@ -567,6 +565,7 @@ def merge_pred_json(opt: ValConfig, prefix=''):
     return merged_json, merged_result
 
 
+@catch_exception("Failed when visualize evaluation result.")
 def visualize_coco(opt: ValConfig, dataset_cfg: DatasetConfig, anno_json, pred_json_path):
     print("Start visualization result.")
     dataset_coco = COCO(anno_json)
@@ -576,6 +575,7 @@ def visualize_coco(opt: ValConfig, dataset_cfg: DatasetConfig, anno_json, pred_j
     @dataclass
     class Config:
         dataset: str = "coco"
+
     config = Config(dataset="coco")
     data_dir = Path(dataset_cfg.val).parent
     img_path_name = os.path.splitext(os.path.basename(dataset_cfg.val))[0]
@@ -618,8 +618,7 @@ def save_eval_result(opt: ValConfig, metric_stats, dataset_cfg: DatasetConfig, d
             if opt.distributed_eval:
                 pred_json_path, pred_json = merge_pred_json(opt, prefix=ckpt_name)
             if opt.result_view or opt.recommend_threshold:
-                wrapped_visualize_coco = catch_exception("Failed when visualize evaluation result.")(visualize_coco)
-                wrapped_visualize_coco(opt, dataset_cfg, anno_json, pred_json_path)
+                visualize_coco(opt, dataset_cfg, anno_json, pred_json_path)
             result = eval_coco(anno_json, pred_json, dataset_cfg.is_coco, dataset=dataset)
             print(f"\nCOCO mAP:\n{result.stats_str}")
         coco_result = result

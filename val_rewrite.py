@@ -220,7 +220,7 @@ def save_json(pred_json, save_path):
 class EvalManager:
     def __init__(self, opt: ValConfig, model=None, dataset=None, dataloader=None):
         self.opt = opt
-        self.dataset_cfg = self.get_dataset_cfg()
+        self.dataset_cfg = self.__get_dataset_cfg()
         self.model = model
         self.dataset = dataset
         self.dataloader = dataloader
@@ -289,7 +289,7 @@ class EvalManager:
         dataset_cfg.cls_map = coco80_to_coco91_class() if dataset_cfg.is_coco \
             else list(range(dataset_cfg.cls_start_idx, 1000 + dataset_cfg.cls_start_idx))
 
-    def get_dataset_cfg(self):
+    def __get_dataset_cfg(self):
         opt = self.opt
         is_coco = opt.data.endswith('coco.yaml')
         with open(opt.data) as f:

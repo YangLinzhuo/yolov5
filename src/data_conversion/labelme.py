@@ -219,18 +219,21 @@ class LabelmeManager(BaseManager):
         else:
             self.logger.warning(f"Skip checking images for img_dir [{img_dir}] because the previous check not passed.")
 
+    def _validate_category(self):
+        pass
+
     def _validate_dataset(self) -> None:
         # Check images
         if self.args.is_img_same_dir:
             self.logger.info("Checking dataset...")
-            self._validate_subset(self.args.data_dir, strict=False)
+            self._validate_subdirectory(self.args.data_dir, strict=False)
         else:
             self.logger.info("Checking train dataset...")
-            self._validate_subset(self.args.train_dir, strict=False)
+            self._validate_subdirectory(self.args.train_dir, strict=False)
             self.logger.info("Checking val dataset...")
-            self._validate_subset(self.args.val_dir, strict=False)
+            self._validate_subdirectory(self.args.val_dir, strict=False)
             self.logger.info("Checking test dataset...")
-            self._validate_subset(self.args.test_dir, strict=False)
+            self._validate_subdirectory(self.args.test_dir, strict=False)
             # Check category consistency between train, val (and test if necessary)
             self.logger.info("Checking category consistency...")
             self._validate_category()
